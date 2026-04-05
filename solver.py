@@ -8,70 +8,21 @@ Optimisations:
   - Incremental scoring: after choosing a group, only update affected candidates
   - Containment fast-path: O(C(k,j)) lookup table when s==j
   - Simulated annealing post-processing for medium-size solutions
-  - Adaptive top-K heuristic for very large problems
-  - Optional GPU batch scoring (CuPy) with automatic CPU fallback
+  - Adaptive top-K heuristic for very large problems (n=25)
 """
 
 from __future__ import annotations
 
+import heapq
 import math
-import os
 import random
-import site
 import time
 from dataclasses import dataclass
 from itertools import combinations
 from math import comb
-from pathlib import Path
 from typing import Callable
 
 import numpy as np
-
-
-def _add_windows_cuda_dll_dirs() -> None:
-    """Make CuPy find CUDA DLLs from pip nvidia-* packages on Windows."""
-    if os.name != "nt":
-        return
-
-    roots: list[Path] = []
-    try:
-        roots.extend(Path(p) for p in site.getsitepackages())
-    except Exception:
-        pass
-    try:
-        roots.append(Path(site.getusersitepackages()))
-    except Exception:
-        pass
-
-    added: set[str] = set()
-    for root in roots:
-        nvidia_dir = root / "nvidia"
-        if not nvidia_dir.exists():
-            continue
-        runtime_root = nvidia_dir / "cuda_runtime"
-        if "CUDA_PATH" not in os.environ and runtime_root.exists():
-            os.environ["CUDA_PATH"] = str(runtime_root)
-        for pkg in ("cuda_nvrtc", "cuda_runtime", "nvjitlink"):
-            bin_dir = nvidia_dir / pkg / "bin"
-            if not bin_dir.exists():
-                continue
-            s = str(bin_dir)
-            if s in added:
-                continue
-            try:
-                os.add_dll_directory(s)  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            os.environ["PATH"] = s + os.pathsep + os.environ.get("PATH", "")
-            added.add(s)
-
-
-_add_windows_cuda_dll_dirs()
-
-try:
-    import cupy as cp  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    cp = None
 
 
 # ---------------------------------------------------------------------------
@@ -157,18 +108,7 @@ class SolverResult:
 # Solver
 # ---------------------------------------------------------------------------
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-DEFAULT_BATCH_BYTES = 128 * 1024 * 1024
-MAX_BATCH_BYTES = _env_int("CK_BATCH_BYTES", DEFAULT_BATCH_BYTES)
+MAX_BATCH_BYTES = 600 * 1024 * 1024  # 600 MiB ceiling per numpy batch
 
 
 class CoveringDesignSolver:
@@ -194,6 +134,7 @@ class CoveringDesignSolver:
         self._num_attempts = max(1, num_attempts)
         self._t0 = 0.0
 
+        # --- validate -------------------------------------------------
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
         if not 4 <= k <= 7:
@@ -207,6 +148,7 @@ class CoveringDesignSolver:
 
         self._containment = s == j
 
+        # --- generate bitmasks ----------------------------------------
         elems = list(range(n))
         self.target_masks = np.array(
             [elements_to_mask(c) for c in combinations(elems, j)],
@@ -218,34 +160,19 @@ class CoveringDesignSolver:
         )
         self.num_targets = len(self.target_masks)
         self.num_cands = len(self.cand_masks)
-        self._interaction_scale = self.num_targets * self.num_cands
 
-        self._batch_bytes = MAX_BATCH_BYTES
-        self._base_top_k = self._choose_top_k()
-        self._cand_has_elem: np.ndarray | None = None
-        self._target_has_elem: np.ndarray | None = None
-
-        self._gpu_enabled = bool(
-            _env_int("CK_USE_GPU", 1)
-            and cp is not None
-            and self._interaction_scale >= 500_000_000
-        )
-        self._gpu_failed = False
-
+        # --- precompute coverage tables -------------------------------
+        # _cov_table[ci] = array of target indices that candidate ci covers
+        # _inv_table[ti] = array of candidate indices that cover target ti
         self._cov_table: list[np.ndarray] | None = None
         self._inv_table: list[np.ndarray] | None = None
         self._jsub_table: np.ndarray | None = None
 
-        mem_estimate = self.num_cands * self.num_targets
-        if self._containment and mem_estimate > 20_000_000:
-            self._build_jsub_table()
-        elif mem_estimate <= 500_000_000:
+        mem_estimate = self.num_cands * self.num_targets  # rough
+        if mem_estimate <= 500_000_000:  # <500M interactions → build table
             self._build_coverage_tables()
         elif self._containment:
             self._build_jsub_table()
-
-        if self._cov_table is None:
-            self._init_heuristic_cache()
 
     # ------------------------------------------------------------------
     # Precomputation
@@ -256,6 +183,7 @@ class CoveringDesignSolver:
         cov: list[list[int]] = [[] for _ in range(self.num_cands)]
         inv: list[list[int]] = [[] for _ in range(self.num_targets)]
 
+        # Process in batches to avoid huge 2D arrays
         bs = max(1, 400_000_000 // max(1, self.num_targets * 4))
         bs = min(bs, self.num_cands)
 
@@ -296,43 +224,16 @@ class CoveringDesignSolver:
                 table[ci, ji] = target_idx[jmask]
         self._jsub_table = table
 
+        # Also derive cov/inv from jsub_table for unified fast-path
         cov: list[list[int]] = [[] for _ in range(self.num_cands)]
         inv: list[list[int]] = [[] for _ in range(self.num_targets)]
         for ci in range(self.num_cands):
             for ti in table[ci]:
-                tii = int(ti)
-                cov[ci].append(tii)
-                inv[tii].append(ci)
+                ti = int(ti)
+                cov[ci].append(ti)
+                inv[ti].append(ci)
         self._cov_table = [np.array(c, dtype=np.int32) for c in cov]
         self._inv_table = [np.array(c, dtype=np.int32) for c in inv]
-
-    def _init_heuristic_cache(self) -> None:
-        bits = (np.uint32(1) << np.arange(self.n, dtype=np.uint32))
-        self._cand_has_elem = (
-            (self.cand_masks[:, None] & bits[None, :]) != 0
-        ).astype(np.uint8, copy=False)
-        self._target_has_elem = (
-            (self.target_masks[:, None] & bits[None, :]) != 0
-        ).astype(np.uint8, copy=False)
-
-    def _choose_top_k(self) -> int:
-        if self._interaction_scale >= 60_000_000_000:
-            return min(600, self.num_cands)
-        if self._interaction_scale >= 20_000_000_000:
-            return min(800, self.num_cands)
-        if self._interaction_scale >= 5_000_000_000:
-            return min(1000, self.num_cands)
-        if self._interaction_scale >= 1_000_000_000:
-            return min(1200, self.num_cands)
-        return min(2000, self.num_cands)
-
-    def _top_k_for_remaining(self, remaining: int) -> int:
-        top_k = self._base_top_k
-        if remaining <= 20_000:
-            top_k = min(self.num_cands, max(top_k, 1200))
-        if remaining <= 5_000:
-            top_k = min(self.num_cands, max(top_k, 2000))
-        return max(1, top_k)
 
     # ------------------------------------------------------------------
     # Public API
@@ -341,49 +242,39 @@ class CoveringDesignSolver:
     def solve(self) -> SolverResult:
         self._t0 = time.time()
         best: list[int] | None = None
-        stagnant = 0
 
-        if self._gpu_enabled:
-            self._report("gpu", "GPU batch scoring enabled")
-
-        num_att = self._effective_attempts()
+        # Fewer attempts for very large problems
+        num_att = self._num_attempts
+        if self.num_cands > 100_000:
+            num_att = min(num_att, 2)
+        elif self.num_cands > 30_000:
+            num_att = min(num_att, 3)
 
         for attempt in range(1, num_att + 1):
             if self._cancel():
                 break
-            self._report("greedy", f"Attempt {attempt}/{num_att}: greedy...")
+            self._report("greedy",
+                         f"Attempt {attempt}/{num_att}: greedy...")
             sol = self._greedy(randomize=attempt > 1)
             if self._cancel():
                 if best is None or (sol and len(sol) < len(best)):
                     best = sol
                 break
 
-            self._report("optimize", f"Attempt {attempt}: optimise ({len(sol)} groups)...")
+            self._report("optimize",
+                         f"Attempt {attempt}: optimise ({len(sol)} groups)...")
             sol = self._local_search(sol)
-            if not self._cancel() and self._allow_swap(sol):
+            if not self._cancel():
                 sol = self._swap_improve(sol)
                 sol = self._local_search(sol)
-
             if not self._cancel() and 3 < len(sol) <= 200:
-                sa_budget = self._sa_time_budget(sol)
-                if sa_budget > 0:
-                    sol = self._sa_improve(sol, max_time=sa_budget)
+                sol = self._sa_improve(sol)
                 sol = self._local_search(sol)
 
-            improved = best is None or len(sol) < len(best)
-            if improved:
+            if best is None or len(sol) < len(best):
                 best = sol
-                stagnant = 0
-                self._report("optimize", f"Best so far: {len(best)} groups (attempt {attempt})")
-            else:
-                stagnant += 1
-
-            if (
-                attempt >= 2
-                and stagnant >= 1
-                and (self._interaction_scale >= 20_000_000 or self.num_targets >= 2_000)
-            ):
-                break
+                self._report("optimize",
+                             f"Best so far: {len(best)} groups (attempt {attempt})")
 
         masks = best or []
         return SolverResult(
@@ -391,41 +282,6 @@ class CoveringDesignSolver:
             elapsed=time.time() - self._t0,
             verified=self._verify(masks),
         )
-
-    def _effective_attempts(self) -> int:
-        """Scale attempts with instance size to avoid runaway runtime."""
-        num_att = self._num_attempts
-        if self._interaction_scale >= 900_000_000:
-            return min(num_att, 1)
-        if self._interaction_scale >= 120_000_000 or self.num_cands >= 30_000:
-            return min(num_att, 2)
-        if self.num_targets >= 700 or self.num_cands >= 5_000:
-            return min(num_att, 2)
-        return num_att
-
-    def _allow_swap(self, sol: list[int]) -> bool:
-        if len(sol) > 60:
-            return False
-        if self.num_cands > 12_000:
-            return False
-        if self.num_targets > 3_000:
-            return False
-        return self._interaction_scale <= 120_000_000
-
-    def _sa_time_budget(self, sol: list[int]) -> float:
-        if len(sol) <= 3:
-            return 0.0
-        if len(sol) > 120:
-            return 0.0
-        if self._interaction_scale >= 900_000_000:
-            return 1.5
-        if self._interaction_scale >= 300_000_000 or self.num_cands >= 30_000:
-            return 2.0
-        if self.num_targets >= 3_000:
-            return 3.0
-        if self._interaction_scale >= 120_000_000:
-            return 4.0
-        return 8.0
 
     # ------------------------------------------------------------------
     # Greedy dispatch
@@ -436,6 +292,8 @@ class CoveringDesignSolver:
             return self._greedy_incremental(randomize)
         return self._greedy_heuristic(randomize)
 
+    # --- strategy 1: incremental (precomputed tables available) -------
+
     def _greedy_incremental(self, randomize: bool) -> list[int]:
         """Fast greedy using precomputed coverage + incremental score updates."""
         cov_table = self._cov_table
@@ -443,13 +301,13 @@ class CoveringDesignSolver:
         assert cov_table is not None and inv_table is not None
 
         uncov = np.ones(self.num_targets, dtype=bool)
+        # scores[ci] = number of currently-uncovered targets that ci covers
         scores = np.array([len(c) for c in cov_table], dtype=np.int32)
         selected: list[int] = []
         iteration = 0
         log_interval = max(1, self.num_targets // 500)
-        rem = self.num_targets
 
-        while rem > 0:
+        while uncov.any():
             if self._cancel():
                 break
 
@@ -467,25 +325,25 @@ class CoveringDesignSolver:
             mask = int(self.cand_masks[best_idx])
             selected.append(mask)
 
+            # Mark covered and decrementally update scores
             newly_covered = cov_table[best_idx][uncov[cov_table[best_idx]]]
-            if len(newly_covered) == 0:
-                break
             uncov[newly_covered] = False
             for ti in newly_covered:
+                # All candidates that also cover ti lose 1 from their score
                 affected = inv_table[ti]
                 scores[affected] -= 1
 
             iteration += 1
-            rem -= len(newly_covered)
+            rem = int(uncov.sum())
             if iteration % log_interval == 0 or rem == 0:
-                self._report(
-                    "greedy",
-                    f"Iter {iteration}: +1 (covers {len(newly_covered)}), {rem} left",
-                    iteration=iteration,
-                    sol_size=len(selected),
-                    remaining=rem,
-                )
+                self._report("greedy",
+                             f"Iter {iteration}: +1 (covers {len(newly_covered)}), "
+                             f"{rem} left",
+                             iteration=iteration, sol_size=len(selected),
+                             remaining=rem)
         return selected
+
+    # --- strategy 4: heuristic-guided (large) -------------------------
 
     def _greedy_heuristic(self, randomize: bool) -> list[int]:
         uncov = np.ones(self.num_targets, dtype=bool)
@@ -495,51 +353,52 @@ class CoveringDesignSolver:
         while uncov.any():
             if self._cancel():
                 break
-            rem = int(uncov.sum())
-            mask, cnt = self._heuristic_pick(uncov, rem, randomize)
+            uncov_t = self.target_masks[uncov]
+            mask, cnt = self._heuristic_pick(uncov_t, randomize)
             if cnt == 0:
                 break
             selected.append(mask)
             self._mark_covered(mask, uncov)
             iteration += 1
             rem = int(uncov.sum())
-            self._report(
-                "greedy",
-                f"Iter {iteration}: +1 (covers {cnt}), {rem} left",
-                iteration=iteration,
-                sol_size=len(selected),
-                remaining=rem,
-            )
+            self._report("greedy",
+                         f"Iter {iteration}: +1 (covers {cnt}), {rem} left",
+                         iteration=iteration, sol_size=len(selected),
+                         remaining=rem)
         return selected
 
     def _heuristic_pick(
-        self, uncov: np.ndarray, remaining: int, randomize: bool,
+        self, uncov_t: np.ndarray, randomize: bool,
     ) -> tuple[int, int]:
-        """Element-frequency heuristic then top-K exact evaluation."""
-        cand_has = self._cand_has_elem
-        target_has = self._target_has_elem
-        assert cand_has is not None and target_has is not None
+        """Element-frequency heuristic → top-K exact evaluation."""
+        # element frequencies in uncovered targets
+        freq = np.zeros(self.n, dtype=np.int64)
+        for e in range(self.n):
+            freq[e] = int(np.sum((uncov_t & np.uint32(1 << e)) != 0))
 
-        freq = target_has[uncov].sum(axis=0, dtype=np.int64)
-        h = cand_has @ freq
+        # heuristic score per candidate
+        h = np.zeros(self.num_cands, dtype=np.int64)
+        for e in range(self.n):
+            bit = np.uint32(1 << e)
+            has_e = (self.cand_masks & bit).astype(bool)
+            h += has_e * freq[e]
 
-        top_k = self._top_k_for_remaining(remaining)
+        # top-K
+        top_k = min(2000, self.num_cands)
         if top_k < self.num_cands:
             top_idx = np.argpartition(h, -top_k)[-top_k:]
         else:
             top_idx = np.arange(self.num_cands)
         top_cands = self.cand_masks[top_idx]
-        uncov_t = self.target_masks[uncov]
 
-        raw_counts = self._batch_scores(top_cands, uncov_t)
+        # exact scoring of top-K
+        counts = self._batch_scores(top_cands, uncov_t)
         if randomize:
-            noisy = raw_counts.astype(np.float64)
-            noisy += np.random.random(len(noisy)) * 0.5
-            best_local = int(np.argmax(noisy))
-        else:
-            best_local = int(np.argmax(raw_counts))
+            counts = counts.astype(np.float64)
+            counts += np.random.random(len(counts)) * 0.5
 
-        return int(top_cands[best_local]), int(raw_counts[best_local])
+        best_local = int(np.argmax(counts))
+        return int(top_cands[best_local]), int(counts[best_local])
 
     # ------------------------------------------------------------------
     # Batch scoring
@@ -548,25 +407,9 @@ class CoveringDesignSolver:
     def _batch_scores(
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> np.ndarray:
-        if (
-            self._gpu_enabled
-            and not self._gpu_failed
-            and len(cands) >= 256
-            and len(targets) >= 4096
-        ):
-            try:
-                return self._batch_scores_gpu(cands, targets)
-            except Exception:
-                self._gpu_failed = True
-                self._report("gpu", "GPU path failed; falling back to CPU")
-        return self._batch_scores_cpu(cands, targets)
-
-    def _batch_scores_cpu(
-        self, cands: np.ndarray, targets: np.ndarray,
-    ) -> np.ndarray:
         nc, nt = len(cands), len(targets)
         scores = np.zeros(nc, dtype=np.int32)
-        bs = max(1, self._batch_bytes // max(1, nt * 12))
+        bs = max(1, MAX_BATCH_BYTES // max(1, nt * 12))
         bs = min(bs, nc)
 
         for i in range(0, nc, bs):
@@ -580,48 +423,6 @@ class CoveringDesignSolver:
                 counts = np.sum(popcount_uint32(ints) >= self.s, axis=1)
             scores[i : i + len(batch)] = counts
         return scores
-
-    def _batch_scores_gpu(
-        self, cands: np.ndarray, targets: np.ndarray,
-    ) -> np.ndarray:
-        assert cp is not None
-        cands_gpu = cp.asarray(cands, dtype=cp.uint32)
-        targets_gpu = cp.asarray(targets, dtype=cp.uint32)
-        scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
-
-        free_mem, _ = cp.cuda.Device().mem_info
-        approx_bytes_per_target = max(4, len(cands) * 12)
-        chunk = int(max(2048, min(
-            len(targets),
-            (free_mem * 0.2) // approx_bytes_per_target
-        )))
-
-        for start in range(0, len(targets), chunk):
-            if self._cancel():
-                break
-            t_chunk = targets_gpu[start : start + chunk]
-            ints = cands_gpu[:, None] & t_chunk[None, :]
-            if self._containment:
-                hits = ints == t_chunk[None, :]
-            else:
-                hits = self._gpu_popcount_uint32(ints) >= self.s
-            scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
-        return cp.asnumpy(scores_gpu)
-
-    @staticmethod
-    def _gpu_popcount_uint32(arr):
-        assert cp is not None
-        x = cp.array(arr, dtype=cp.uint32, copy=True)
-        t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
-        x = x - t
-        t = x & cp.uint32(0x33333333)
-        x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
-        x = x + t
-        x = x + (x >> cp.uint32(4))
-        x = x & cp.uint32(0x0F0F0F0F)
-        x = x * cp.uint32(0x01010101)
-        x = x >> cp.uint32(24)
-        return x.astype(cp.int32)
 
     def _eval_one(self, mask: int, targets: np.ndarray) -> int:
         ints = np.uint32(mask) & targets
@@ -664,7 +465,7 @@ class CoveringDesignSolver:
         return self.target_masks[~covered]
 
     # ------------------------------------------------------------------
-    # Local search
+    # Local search (coverage-count based — fast for large solutions)
     # ------------------------------------------------------------------
 
     def _local_search(self, sol: list[int]) -> list[int]:
@@ -681,11 +482,13 @@ class CoveringDesignSolver:
                 if self._verify(rest):
                     sol = rest
                     improved = True
-                    self._report("optimize", f"Removed redundant -> {len(sol)} groups")
+                    self._report("optimize",
+                                 f"Removed redundant -> {len(sol)} groups")
                     break
         return sol
 
     def _local_search_fast(self, sol: list[int]) -> list[int]:
+        """Remove redundant groups using per-target coverage counts."""
         cov_count = np.zeros(self.num_targets, dtype=np.int32)
         sol_cov: list[np.ndarray] = []
         for m in sol:
@@ -703,7 +506,8 @@ class CoveringDesignSolver:
                     sol.pop(i)
                     sol_cov.pop(i)
                     improved = True
-                    self._report("optimize", f"Removed redundant -> {len(sol)} groups")
+                    self._report("optimize",
+                                 f"Removed redundant -> {len(sol)} groups")
         return sol
 
     def _covers_bool(self, mask: int) -> np.ndarray:
@@ -714,7 +518,7 @@ class CoveringDesignSolver:
 
     def _swap_improve(self, sol: list[int], rounds: int = 3) -> list[int]:
         if len(sol) > 60:
-            return sol
+            return sol  # skip expensive swap for large solutions
         for _ in range(rounds):
             if self._cancel():
                 break
@@ -729,18 +533,17 @@ class CoveringDesignSolver:
                 if len(uncov) == 0:
                     sol = rest
                     improved = True
-                    self._report("optimize", f"Swap: removed -> {len(sol)} groups")
+                    self._report("optimize",
+                                 f"Swap: removed -> {len(sol)} groups")
                     break
+                # try to find single replacement covering ALL uncov
                 for cm in self.cand_masks:
                     cm_int = int(cm)
                     if cm_int == sol[i]:
                         continue
                     ints = np.uint32(cm_int) & uncov
-                    ok = (
-                        np.all(ints == uncov)
-                        if self._containment
-                        else np.all(popcount_uint32(ints) >= self.s)
-                    )
+                    ok = (np.all(ints == uncov) if self._containment
+                          else np.all(popcount_uint32(ints) >= self.s))
                     if ok:
                         sol = rest + [cm_int]
                         improved = True
@@ -756,6 +559,7 @@ class CoveringDesignSolver:
     # ------------------------------------------------------------------
 
     def _sa_improve(self, sol: list[int], max_time: float = 10.0) -> list[int]:
+        """Try to reduce solution size using simulated annealing swaps."""
         if len(sol) <= 3:
             return sol
         best = list(sol)
@@ -763,15 +567,18 @@ class CoveringDesignSolver:
         t0 = time.time()
         T = 1.0
         cooling = 0.995
+        iters = 0
         best_len = len(best)
 
         cand_list = self.cand_masks.tolist()
         nc = len(cand_list)
 
         while T > 0.01 and not self._cancel():
-            if (time.time() - t0) > max_time:
+            elapsed = time.time() - t0
+            if elapsed > max_time:
                 break
 
+            # Random swap: replace one group with a random candidate
             idx = random.randrange(len(current))
             new_mask = cand_list[random.randrange(nc)]
             old_mask = current[idx]
@@ -780,6 +587,7 @@ class CoveringDesignSolver:
 
             current[idx] = new_mask
             if self._verify(current):
+                # Try removing redundant groups
                 trial = list(current)
                 random.shuffle(trial)
                 reduced = []
@@ -800,10 +608,12 @@ class CoveringDesignSolver:
                     best = reduced
                     best_len = len(best)
                     current = list(best)
-                    self._report("sa", f"SA improved to {best_len} groups")
+                    self._report("sa",
+                                 f"SA improved to {best_len} groups")
                 elif len(current) <= len(best) + 1:
-                    pass
+                    pass  # accept as current
                 else:
+                    # Accept worse with probability based on T
                     delta = len(current) - len(best)
                     if random.random() >= math.exp(-delta / T):
                         current[idx] = old_mask
@@ -811,6 +621,7 @@ class CoveringDesignSolver:
                 current[idx] = old_mask
 
             T *= cooling
+            iters += 1
 
         return best
 
@@ -820,14 +631,12 @@ class CoveringDesignSolver:
 
     def _report(self, phase: str, msg: str, **kw: int) -> None:
         if self._cb:
-            self._cb(
-                SolverProgress(
-                    phase=phase,
-                    message=msg,
-                    iteration=kw.get("iteration", 0),
-                    solution_size=kw.get("sol_size", 0),
-                    remaining=kw.get("remaining", 0),
-                    total=self.num_targets,
-                    elapsed=time.time() - self._t0,
-                )
-            )
+            self._cb(SolverProgress(
+                phase=phase,
+                message=msg,
+                iteration=kw.get("iteration", 0),
+                solution_size=kw.get("sol_size", 0),
+                remaining=kw.get("remaining", 0),
+                total=self.num_targets,
+                elapsed=time.time() - self._t0,
+            ))
