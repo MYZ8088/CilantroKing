@@ -1,0 +1,237 @@
+{
+  "format_version": 1,
+  "default_suite": "core",
+  "description": "Deterministic benchmark cases for iterative covering-design solver improvement.",
+  "cases": [
+    {
+      "id": "pdf_7655",
+      "name": "PDF example 1",
+      "n": 7,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "num_attempts": 5,
+      "timeout_sec": 20,
+      "seed": 2026040601,
+      "weight": 1.0,
+      "suites": ["smoke", "core", "full"],
+      "reference": {
+        "type": "exact",
+        "value": 6,
+        "source": "README and tests/test_solver.py"
+      }
+    },
+    {
+      "id": "pdf_8644",
+      "name": "PDF example 3",
+      "n": 8,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "num_attempts": 5,
+      "timeout_sec": 20,
+      "seed": 2026040602,
+      "weight": 1.0,
+      "suites": ["smoke", "core", "full"],
+      "reference": {
+        "type": "exact",
+        "value": 7,
+        "source": "README, LJCR, and tests/test_solver.py"
+      }
+    },
+    {
+      "id": "pdf_8665",
+      "name": "PDF example 5",
+      "n": 8,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "num_attempts": 5,
+      "timeout_sec": 20,
+      "seed": 2026040603,
+      "weight": 1.0,
+      "suites": ["smoke", "core", "full"],
+      "reference": {
+        "type": "exact",
+        "value": 4,
+        "source": "tests/test_solver.py"
+      }
+    },
+    {
+      "id": "pdf_12664",
+      "name": "PDF example 9",
+      "n": 12,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "num_attempts": 5,
+      "timeout_sec": 30,
+      "seed": 2026040604,
+      "weight": 1.0,
+      "suites": ["smoke", "core", "full"],
+      "reference": {
+        "type": "exact",
+        "value": 6,
+        "source": "tests/test_solver.py"
+      }
+    },
+    {
+      "id": "ljcr_10644",
+      "name": "Containment medium",
+      "n": 10,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "num_attempts": 4,
+      "timeout_sec": 30,
+      "seed": 2026040605,
+      "weight": 1.5,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "ljcr",
+        "value": 20,
+        "source": "bounds.py / LJCR"
+      }
+    },
+    {
+      "id": "ljcr_12655",
+      "name": "Containment medium-large",
+      "n": 12,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "num_attempts": 4,
+      "timeout_sec": 45,
+      "seed": 2026040606,
+      "weight": 1.75,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "ljcr",
+        "value": 132,
+        "source": "bounds.py / LJCR"
+      }
+    },
+    {
+      "id": "k5_8544",
+      "name": "k=5 containment sanity",
+      "n": 8,
+      "k": 5,
+      "j": 4,
+      "s": 4,
+      "num_attempts": 4,
+      "timeout_sec": 20,
+      "seed": 2026040607,
+      "weight": 1.0,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "ljcr",
+        "value": 20,
+        "source": "bounds.py / LJCR"
+      }
+    },
+    {
+      "id": "k7_10766",
+      "name": "k=7 containment sanity",
+      "n": 10,
+      "k": 7,
+      "j": 6,
+      "s": 6,
+      "num_attempts": 4,
+      "timeout_sec": 30,
+      "seed": 2026040608,
+      "weight": 1.25,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "ljcr",
+        "value": 45,
+        "source": "bounds.py / LJCR"
+      }
+    },
+    {
+      "id": "nc_12654",
+      "name": "Non-containment medium",
+      "n": 12,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "num_attempts": 4,
+      "timeout_sec": 45,
+      "seed": 2026040609,
+      "weight": 1.5,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "lower_bound",
+        "source": "bounds.best_lower_bound"
+      }
+    },
+    {
+      "id": "nc_15664",
+      "name": "Non-containment medium-large",
+      "n": 15,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "num_attempts": 3,
+      "timeout_sec": 60,
+      "seed": 2026040610,
+      "weight": 1.75,
+      "suites": ["core", "full"],
+      "reference": {
+        "type": "lower_bound",
+        "source": "bounds.best_lower_bound"
+      }
+    },
+    {
+      "id": "nc_18654",
+      "name": "Non-containment large",
+      "n": 18,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "num_attempts": 3,
+      "timeout_sec": 90,
+      "seed": 2026040611,
+      "weight": 2.25,
+      "suites": ["full"],
+      "reference": {
+        "type": "lower_bound",
+        "source": "bounds.best_lower_bound"
+      }
+    },
+    {
+      "id": "ljcr_20655",
+      "name": "Containment large",
+      "n": 20,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "num_attempts": 3,
+      "timeout_sec": 120,
+      "seed": 2026040612,
+      "weight": 2.5,
+      "suites": ["full"],
+      "reference": {
+        "type": "ljcr",
+        "value": 2800,
+        "source": "bounds.py / LJCR"
+      }
+    },
+    {
+      "id": "nc_20664",
+      "name": "Non-containment large stress",
+      "n": 20,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "num_attempts": 2,
+      "timeout_sec": 120,
+      "seed": 2026040613,
+      "weight": 2.5,
+      "suites": ["full"],
+      "reference": {
+        "type": "lower_bound",
+        "source": "bounds.best_lower_bound"
+      }
+    }
+  ]
+}

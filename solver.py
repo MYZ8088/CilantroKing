@@ -148,6 +148,7 @@ class SolverResult:
     num_groups: int = 0
     elapsed: float = 0.0
     verified: bool = False
+    first_legal_elapsed: float | None = None
 
     def __post_init__(self) -> None:
         self.num_groups = len(self.groups)
@@ -193,6 +194,7 @@ class CoveringDesignSolver:
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
         self._t0 = 0.0
+        self._first_legal_elapsed: float | None = None
 
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
@@ -346,16 +348,43 @@ class CoveringDesignSolver:
         if self._gpu_enabled:
             self._report("gpu", "GPU batch scoring enabled")
 
+        if self._should_build_fast_seed():
+            seed = self._fast_seed_solution()
+            if seed:
+                best = seed
+                self._note_legal_solution()
+                self._report("seed", f"Fast legal seed: {len(seed)} groups")
+
         num_att = self._effective_attempts()
 
         for attempt in range(1, num_att + 1):
             if self._cancel():
                 break
             self._report("greedy", f"Attempt {attempt}/{num_att}: greedy...")
-            sol = self._greedy(randomize=attempt > 1)
+            sol, complete, remaining = self._greedy(randomize=attempt > 1)
+            if complete and (best is None or len(sol) < len(best)):
+                best = sol
+                self._note_legal_solution()
+
             if self._cancel():
-                if best is None or (sol and len(sol) < len(best)):
-                    best = sol
+                if sol and not complete and self._should_repair_partial(remaining, best):
+                    repaired = self._fast_complete_partial_solution(
+                        sol,
+                        best_limit=len(best) if best is not None else None,
+                    )
+                    if repaired and (best is None or len(repaired) < len(best)):
+                        best = repaired
+                        self._note_legal_solution()
+                break
+            if not complete:
+                if sol and self._should_repair_partial(remaining, best):
+                    repaired = self._fast_complete_partial_solution(
+                        sol,
+                        best_limit=len(best) if best is not None else None,
+                    )
+                    if repaired and (best is None or len(repaired) < len(best)):
+                        best = repaired
+                        self._note_legal_solution()
                 break
 
             self._report("optimize", f"Attempt {attempt}: optimise ({len(sol)} groups)...")
@@ -374,6 +403,7 @@ class CoveringDesignSolver:
             if improved:
                 best = sol
                 stagnant = 0
+                self._note_legal_solution()
                 self._report("optimize", f"Best so far: {len(best)} groups (attempt {attempt})")
             else:
                 stagnant += 1
@@ -390,6 +420,7 @@ class CoveringDesignSolver:
             groups=[sorted(mask_to_elements(m)) for m in masks],
             elapsed=time.time() - self._t0,
             verified=self._verify(masks),
+            first_legal_elapsed=self._first_legal_elapsed,
         )
 
     def _effective_attempts(self) -> int:
@@ -431,12 +462,12 @@ class CoveringDesignSolver:
     # Greedy dispatch
     # ------------------------------------------------------------------
 
-    def _greedy(self, *, randomize: bool = False) -> list[int]:
+    def _greedy(self, *, randomize: bool = False) -> tuple[list[int], bool, int]:
         if self._cov_table is not None:
             return self._greedy_incremental(randomize)
         return self._greedy_heuristic(randomize)
 
-    def _greedy_incremental(self, randomize: bool) -> list[int]:
+    def _greedy_incremental(self, randomize: bool) -> tuple[list[int], bool, int]:
         """Fast greedy using precomputed coverage + incremental score updates."""
         cov_table = self._cov_table
         inv_table = self._inv_table
@@ -485,17 +516,22 @@ class CoveringDesignSolver:
                     sol_size=len(selected),
                     remaining=rem,
                 )
-        return selected
+        return selected, rem == 0, rem
 
-    def _greedy_heuristic(self, randomize: bool) -> list[int]:
+    def _greedy_heuristic(self, randomize: bool) -> tuple[list[int], bool, int]:
         uncov = np.ones(self.num_targets, dtype=bool)
         selected: list[int] = []
         iteration = 0
+        rem = self.num_targets
 
-        while uncov.any():
+        while rem > 0:
             if self._cancel():
                 break
-            rem = int(uncov.sum())
+            if self._should_finish_fast(rem):
+                tail = self._fast_complete_selected(selected, uncov)
+                if tail:
+                    return tail, True, 0
+                break
             mask, cnt = self._heuristic_pick(uncov, rem, randomize)
             if cnt == 0:
                 break
@@ -510,7 +546,7 @@ class CoveringDesignSolver:
                 sol_size=len(selected),
                 remaining=rem,
             )
-        return selected
+        return selected, rem == 0, rem
 
     def _heuristic_pick(
         self, uncov: np.ndarray, remaining: int, randomize: bool,
@@ -531,15 +567,15 @@ class CoveringDesignSolver:
         top_cands = self.cand_masks[top_idx]
         uncov_t = self.target_masks[uncov]
 
-        raw_counts = self._batch_scores(top_cands, uncov_t)
         if randomize:
+            raw_counts = self._batch_scores(top_cands, uncov_t)
             noisy = raw_counts.astype(np.float64)
             noisy += np.random.random(len(noisy)) * 0.5
             best_local = int(np.argmax(noisy))
-        else:
-            best_local = int(np.argmax(raw_counts))
+            return int(top_cands[best_local]), int(raw_counts[best_local])
 
-        return int(top_cands[best_local]), int(raw_counts[best_local])
+        best_local, best_count = self._batch_best(top_cands, uncov_t)
+        return int(top_cands[best_local]), best_count
 
     # ------------------------------------------------------------------
     # Batch scoring
@@ -561,6 +597,22 @@ class CoveringDesignSolver:
                 self._report("gpu", "GPU path failed; falling back to CPU")
         return self._batch_scores_cpu(cands, targets)
 
+    def _batch_best(
+        self, cands: np.ndarray, targets: np.ndarray,
+    ) -> tuple[int, int]:
+        if (
+            self._gpu_enabled
+            and not self._gpu_failed
+            and len(cands) >= 256
+            and len(targets) >= 4096
+        ):
+            try:
+                return self._batch_best_gpu(cands, targets)
+            except Exception:
+                self._gpu_failed = True
+                self._report("gpu", "GPU path failed; falling back to CPU")
+        return self._batch_best_cpu(cands, targets)
+
     def _batch_scores_cpu(
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> np.ndarray:
@@ -580,6 +632,32 @@ class CoveringDesignSolver:
                 counts = np.sum(popcount_uint32(ints) >= self.s, axis=1)
             scores[i : i + len(batch)] = counts
         return scores
+
+    def _batch_best_cpu(
+        self, cands: np.ndarray, targets: np.ndarray,
+    ) -> tuple[int, int]:
+        nc, nt = len(cands), len(targets)
+        bs = max(1, self._batch_bytes // max(1, nt * 12))
+        bs = min(bs, nc)
+        best_local = 0
+        best_count = -1
+
+        for i in range(0, nc, bs):
+            if self._cancel():
+                break
+            batch = cands[i : i + bs]
+            ints = batch[:, None] & targets[None, :]
+            if self._containment:
+                counts = np.sum(ints == targets[None, :], axis=1)
+            else:
+                counts = np.sum(popcount_uint32(ints) >= self.s, axis=1)
+            batch_best = int(np.argmax(counts))
+            batch_count = int(counts[batch_best])
+            if batch_count > best_count:
+                best_count = batch_count
+                best_local = i + batch_best
+
+        return best_local, max(0, best_count)
 
     def _batch_scores_gpu(
         self, cands: np.ndarray, targets: np.ndarray,
@@ -607,6 +685,36 @@ class CoveringDesignSolver:
                 hits = self._gpu_popcount_uint32(ints) >= self.s
             scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
         return cp.asnumpy(scores_gpu)
+
+    def _batch_best_gpu(
+        self, cands: np.ndarray, targets: np.ndarray,
+    ) -> tuple[int, int]:
+        assert cp is not None
+        cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+        targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+        scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
+
+        free_mem, _ = cp.cuda.Device().mem_info
+        approx_bytes_per_target = max(4, len(cands) * 12)
+        chunk = int(max(2048, min(
+            len(targets),
+            (free_mem * 0.2) // approx_bytes_per_target
+        )))
+
+        for start in range(0, len(targets), chunk):
+            if self._cancel():
+                break
+            t_chunk = targets_gpu[start : start + chunk]
+            ints = cands_gpu[:, None] & t_chunk[None, :]
+            if self._containment:
+                hits = ints == t_chunk[None, :]
+            else:
+                hits = self._gpu_popcount_uint32(ints) >= self.s
+            scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
+
+        best_local = int(cp.argmax(scores_gpu).get())
+        best_count = int(scores_gpu[best_local].get())
+        return best_local, best_count
 
     @staticmethod
     def _gpu_popcount_uint32(arr):
@@ -831,3 +939,140 @@ class CoveringDesignSolver:
                     elapsed=time.time() - self._t0,
                 )
             )
+
+    def _should_build_fast_seed(self) -> bool:
+        return (
+            self._cov_table is None
+            and (self.num_targets >= 20_000 or self._interaction_scale >= 1_000_000_000)
+        )
+
+    def _note_legal_solution(self) -> None:
+        if self._first_legal_elapsed is None:
+            self._first_legal_elapsed = time.time() - self._t0
+
+    def _fast_seed_solution(self) -> list[int]:
+        return self._fast_complete_partial_solution([])
+
+    def _fast_complete_partial_solution(
+        self,
+        partial: list[int],
+        *,
+        best_limit: int | None = None,
+    ) -> list[int] | None:
+        uncovered = np.ones(self.num_targets, dtype=bool)
+        selected = list(partial)
+        for mask in selected:
+            self._mark_covered(mask, uncovered)
+
+        return self._fast_complete_selected(
+            selected,
+            uncovered,
+            best_limit=best_limit,
+        )
+
+    def _fast_complete_selected(
+        self,
+        selected: list[int],
+        uncovered: np.ndarray,
+        *,
+        best_limit: int | None = None,
+    ) -> list[int] | None:
+        rem = int(uncovered.sum())
+
+        if rem == 0:
+            return selected
+
+        chosen = set(selected)
+        iteration = 0
+        log_interval = max(1, self.num_targets // 500)
+        freq = self._fast_completion_freq(uncovered)
+
+        while rem > 0:
+            if best_limit is not None and len(selected) >= best_limit:
+                return None
+            target_idx = int(np.argmax(uncovered))
+            if not uncovered[target_idx]:
+                break
+            mask = self._canonical_cover_mask(
+                int(self.target_masks[target_idx]),
+                chosen,
+                freq=freq,
+            )
+            if mask not in chosen:
+                selected.append(mask)
+                chosen.add(mask)
+            self._mark_covered(mask, uncovered)
+            iteration += 1
+            rem = int(uncovered.sum())
+            if iteration % 128 == 0:
+                freq = self._fast_completion_freq(uncovered)
+            if iteration % log_interval == 0 or rem == 0:
+                self._report(
+                    "seed",
+                    f"Seed/repair iter {iteration}: {rem} left",
+                    iteration=iteration,
+                    sol_size=len(selected),
+                    remaining=rem,
+                )
+
+        return selected
+
+    def _canonical_cover_mask(
+        self,
+        target_mask: int,
+        chosen: set[int],
+        *,
+        freq: np.ndarray | None = None,
+    ) -> int:
+        target_elems = mask_to_elements(target_mask)
+        need = self.k - len(target_elems)
+        if need <= 0:
+            return target_mask
+
+        available = [e for e in range(self.n) if not (target_mask & (1 << e))]
+        if freq is not None and len(available) > 1:
+            available.sort(key=lambda e: (-int(freq[e]), e))
+        if need == 1:
+            for extra in available:
+                candidate = target_mask | (1 << extra)
+                if candidate not in chosen:
+                    return candidate
+            return target_mask | (1 << available[0])
+
+        candidate = target_mask
+        for extra in available[:need]:
+            candidate |= 1 << extra
+        if candidate not in chosen:
+            return candidate
+
+        for extras in combinations(available, need):
+            candidate = target_mask
+            for extra in extras:
+                candidate |= 1 << extra
+            if candidate not in chosen:
+                return candidate
+
+        candidate = target_mask
+        for extra in available[:need]:
+            candidate |= 1 << extra
+        return candidate
+
+    def _should_repair_partial(self, remaining: int, best: list[int] | None) -> bool:
+        if remaining <= 0:
+            return False
+        if best is None:
+            return True
+        limit = min(25_000, max(2_000, self.num_targets // 4))
+        return remaining <= limit
+
+    def _should_finish_fast(self, remaining: int) -> bool:
+        if self._cov_table is not None:
+            return False
+        if self.num_targets < 100_000:
+            return False
+        return remaining <= 25_000
+
+    def _fast_completion_freq(self, uncovered: np.ndarray) -> np.ndarray | None:
+        if self._target_has_elem is None:
+            return None
+        return self._target_has_elem[uncovered].sum(axis=0, dtype=np.int64)
