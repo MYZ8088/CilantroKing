@@ -56,7 +56,7 @@ TEST_CASES: list[tuple[int, int, int, int, str]] = [
 ]
 
 
-def run_validation(timeout: float = 120.0) -> None:
+def run_validation(timeout: float = 100.0) -> None:
     max_cases = int(sys.argv[1]) if len(sys.argv) > 1 else len(TEST_CASES)
 
     print("=" * 90)

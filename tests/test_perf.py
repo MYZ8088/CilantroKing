@@ -37,7 +37,7 @@ TEST_CASES = [
 
 
 def run_test(n: int, k: int, j: int, s: int, desc: str,
-             timeout: float = 120.0) -> None:
+             timeout: float = 100.0) -> None:
     t0 = time.time()
     try:
         solver = CoveringDesignSolver(
@@ -58,7 +58,7 @@ def run_test(n: int, k: int, j: int, s: int, desc: str,
 
 def main() -> None:
     max_cases = int(sys.argv[1]) if len(sys.argv) > 1 else len(TEST_CASES)
-    print(f"Running {max_cases} test cases (timeout=120s each):\n")
+    print(f"Running {max_cases} test cases (timeout=100s each):\n")
     for i, (n, k, j, s, desc) in enumerate(TEST_CASES[:max_cases]):
         run_test(n, k, j, s, desc)
     print("\nDone.")

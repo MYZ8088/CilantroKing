@@ -52,7 +52,7 @@ def test_proven_small(timeout: float = 60.0) -> None:
     print(f"通过: {passed}/{len(cases)}")
 
 
-def test_full_dataset(max_n: int = 25, timeout: float = 120.0,
+def test_full_dataset(max_n: int = 25, timeout: float = 100.0,
                       max_cases: int | None = None) -> None:
     """全面测试: 验证所有 LJCR 数据集条目."""
     dataset = [r for r in LJCR_DATASET if r[0] <= max_n]
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                         help="最大 n 值 (full 模式, 默认 15)")
     parser.add_argument("--max-cases", type=int, default=None,
                         help="最大测试数量")
-    parser.add_argument("--timeout", type=float, default=120.0,
+    parser.add_argument("--timeout", type=float, default=100.0,
                         help="单项超时(秒)")
     args = parser.parse_args()
 
