@@ -5,12 +5,16 @@ from __future__ import annotations
 import queue
 import random
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Optional
 
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
+
+
+DEFAULT_TIME_BUDGET_SEC = 100.0
 
 
 class CleanModernApp:
@@ -41,6 +45,10 @@ class CleanModernApp:
         self._q: queue.Queue[SolverProgress | SolverResult | str] = queue.Queue()
         self._thread: Optional[threading.Thread] = None
         self._cancel_flag = False
+        self._time_budget_sec = DEFAULT_TIME_BUDGET_SEC
+        self._run_started_at: float | None = None
+        self._stop_reason = "idle"
+        self._deadline_stop_requested = False
 
         self._current_result: Optional[SolverResult] = None
         self._current_samples: list[int] = []
@@ -654,6 +662,9 @@ class CleanModernApp:
         self._samples_lbl.config(text=f"Selected samples: {samples}")
 
         self._cancel_flag = False
+        self._deadline_stop_requested = False
+        self._stop_reason = "running"
+        self._run_started_at = time.time()
         self._exec_btn.config(state="disabled")
         self._store_btn.config(state="disabled")
         self._verify_btn.config(state="disabled")
@@ -661,6 +672,9 @@ class CleanModernApp:
         self._cancel_btn.config(state="normal")
         self._result_text.delete("1.0", "end")
         self._prog_bar["value"] = 0
+        self._prog_var.set(
+            f"Running with {self._time_budget_sec:.0f}s time budget..."
+        )
 
         self._thread = threading.Thread(target=self._run_solver, daemon=True)
         self._thread.start()
@@ -859,7 +873,29 @@ class CleanModernApp:
 
     def _on_cancel(self) -> None:
         self._cancel_flag = True
+        if self._stop_reason == "running":
+            self._stop_reason = "manual_cancel"
         self._cancel_btn.config(state="disabled")
+
+    def _should_cancel_solver(self, started_at: float) -> bool:
+        if self._cancel_flag:
+            return True
+        if (time.time() - started_at) >= self._time_budget_sec:
+            self._deadline_stop_requested = True
+            if self._stop_reason == "running":
+                self._stop_reason = "deadline"
+            return True
+        return False
+
+    def _result_reason_text(self) -> str:
+        if self._stop_reason == "deadline":
+            return (
+                f"Time budget reached ({self._time_budget_sec:.0f}s); "
+                "returned current best-so-far solution"
+            )
+        if self._stop_reason == "manual_cancel":
+            return "Stopped by user; returned current best-so-far solution"
+        return "Completed normal solve flow"
 
     # --- Parameter reading ---
 
@@ -940,14 +976,17 @@ class CleanModernApp:
     def _run_solver(self) -> None:
         p = self._params
         try:
+            started_at = self._run_started_at or time.time()
             solver = CoveringDesignSolver(
                 n=p["n"], k=p["k"], j=p["j"], s=p["s"],
                 progress_cb=lambda prog: self._q.put(prog),
-                cancel_fn=lambda: self._cancel_flag,
+                cancel_fn=lambda _t0=started_at: self._should_cancel_solver(_t0),
                 num_attempts=5,
                 skip_final_verify=True,  # Skip verification for faster GUI response
             )
             result = solver.solve()
+            if self._stop_reason == "running":
+                self._stop_reason = "completed"
             self._q.put(result)
         except Exception as exc:
             self._q.put(f"Error: {exc}")
@@ -983,6 +1022,8 @@ class CleanModernApp:
         p = self._params
         run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
         current_run = run_count + 1
+        self._render_result_summary(result, current_run)
+        return
         
         # Show beautiful summary
         lines = [
@@ -1022,6 +1063,68 @@ class CleanModernApp:
         self._prog_var.set(
             f"✅ Generated: {result.num_groups} groups in {result.elapsed:.2f}s (Run #{current_run})"
         )
+        self._prog_bar["value"] = 100
+
+    def _render_result_summary(self, result: SolverResult, current_run: int) -> None:
+        p = self._params
+        first_legal = (
+            f"{result.first_legal_elapsed:.2f}s"
+            if result.first_legal_elapsed is not None
+            else "---"
+        )
+        reason_text = self._result_reason_text()
+        lines = [
+            "",
+            "  " + "=" * 35,
+            "",
+            "            SOLUTION GENERATED",
+            "",
+            "  " + "=" * 35,
+            "",
+            "",
+            "  Summary:",
+            "  " + "-" * 66,
+            f"    Groups Found      : {result.num_groups}",
+            f"    Time Elapsed      : {result.elapsed:.2f}s",
+            f"    First Legal       : {first_legal}",
+            f"    Run Number        : {self._ordinal(current_run)}",
+            f"    Return Mode       : {reason_text}",
+            "    Verification      : Pending (click Verify button)",
+            "  " + "-" * 66,
+            "",
+            "",
+            "  Next Steps:",
+            "",
+            "    1. Click 'Verify' to validate the solution",
+            "    2. Click 'Print Details' to see all groups",
+            "    3. Click 'Store' to save to database",
+            "",
+            "",
+        ]
+        self._result_text.delete("1.0", "end")
+        self._result_text.insert("1.0", "\n".join(lines))
+
+        filename = (
+            f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-"
+            f"{current_run}-{result.num_groups}"
+        )
+        self._file_lbl.set(f"Result: {filename}")
+
+        if self._stop_reason == "deadline":
+            self._prog_var.set(
+                f"Time budget reached ({self._time_budget_sec:.0f}s): "
+                f"returned {result.num_groups} groups in {result.elapsed:.2f}s"
+            )
+        elif self._stop_reason == "manual_cancel":
+            self._prog_var.set(
+                f"Stopped by user: returned {result.num_groups} groups "
+                f"in {result.elapsed:.2f}s"
+            )
+        else:
+            self._prog_var.set(
+                f"Generated: {result.num_groups} groups in {result.elapsed:.2f}s "
+                f"(Run #{current_run})"
+            )
         self._prog_bar["value"] = 100
 
     def _ordinal(self, n: int) -> str:
