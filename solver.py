@@ -185,7 +185,11 @@ class CoveringDesignSolver:
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
         num_attempts: int = 3,
+        skip_final_verify: bool = False,
     ) -> None:
+        # Start timing from initialization to include preprocessing
+        self._t0 = time.time()
+        
         self.n = n
         self.k = k
         self.j = j
@@ -193,7 +197,7 @@ class CoveringDesignSolver:
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
-        self._t0 = 0.0
+        self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
 
         if not 7 <= n <= 25:
@@ -341,7 +345,7 @@ class CoveringDesignSolver:
     # ------------------------------------------------------------------
 
     def solve(self) -> SolverResult:
-        self._t0 = time.time()
+        # Timer already started in __init__, no need to reset
         best: list[int] | None = None
         stagnant = 0
 
@@ -419,7 +423,7 @@ class CoveringDesignSolver:
         return SolverResult(
             groups=[sorted(mask_to_elements(m)) for m in masks],
             elapsed=time.time() - self._t0,
-            verified=self._verify(masks),
+            verified=False if self._skip_final_verify else self._verify(masks),
             first_legal_elapsed=self._first_legal_elapsed,
         )
 
