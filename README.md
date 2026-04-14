@@ -1,5 +1,5 @@
 # An Optimal Samples Selection System
-运行main_clean.py.
+
 A modern GUI-based solver for the **Covering Design** combinatorial optimization problem: given parameters $(m, n, k, j, s)$, find the minimum number of $k$-subsets (groups) of an $n$-element sample pool such that every $j$-subset is covered by at least one group with $\geq s$ common elements.
 
 This is equivalent to the classical covering design $C(n, k, t)$ when $s = j = t$.
