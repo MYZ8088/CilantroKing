@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import random
 import threading
@@ -15,6 +16,8 @@ from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_
 
 
 DEFAULT_TIME_BUDGET_SEC = 100.0
+MAX_STORE_GROUPS = 10000
+MAX_VERIFY_INTERACTIONS = 80_000_000
 
 
 class CleanModernApp:
@@ -682,6 +685,9 @@ class CleanModernApp:
     def _on_store(self) -> None:
         if not self._current_result or not self._current_samples:
             return
+        if not self._can_store_result(self._current_result):
+            self._show_large_result_notice("保存", self._current_result)
+            return
         p = self._params
         samples = self._current_samples
         real_groups = [
@@ -703,7 +709,7 @@ class CleanModernApp:
         )
 
     def _on_print(self) -> None:
-        """Print detailed group information."""
+        """Print full detailed group information."""
         if not self._current_result:
             return
         
@@ -732,9 +738,19 @@ class CleanModernApp:
         ]
         
         samples = self._current_samples
-        for i, grp in enumerate(result.groups, 1):
+        shown_groups = self._result_preview_groups(result, result.num_groups)
+        for i, grp in enumerate(shown_groups, 1):
             nums = [samples[g] for g in grp]
             lines.append(f"  Group {i:3d}: {', '.join(map(str, nums))}")
+
+        if result.num_groups > len(shown_groups):
+            lines.append("")
+            lines.append(
+                f"  [Preview Only] Showing first {len(shown_groups)} groups "
+                f"out of {result.num_groups}"
+            )
+            if not result.groups_complete:
+                lines.append("  Full group list is intentionally not loaded in the GUI")
         
         lines.append("")
         lines.append("═" * 70)
@@ -753,20 +769,25 @@ class CleanModernApp:
         if not self._current_result:
             return
         
-        # Perform verification
-        masks = [elements_to_mask(grp) for grp in self._current_result.groups]
-        
-        # Import verification function from solver
-        from solver import CoveringDesignSolver
-        
-        # Create a temporary solver instance for verification
         p = self._params
-        temp_solver = CoveringDesignSolver(
-            n=p["n"], k=p["k"], j=p["j"], s=p["s"],
-            num_attempts=1
-        )
-        
-        is_verified = temp_solver._verify(masks)
+        current = self._current_result
+        if current.verified:
+            is_verified = True
+        else:
+            if not self._can_verify_result(current):
+                self._show_large_result_notice("执行全量验证", current)
+                self._prog_var.set(
+                    f"结果过大，已跳过界面全量验证（{current.num_groups} groups）"
+                )
+                return
+
+            from solver import CoveringDesignSolver
+
+            temp_solver = CoveringDesignSolver(
+                n=p["n"], k=p["k"], j=p["j"], s=p["s"],
+                num_attempts=1
+            )
+            is_verified = temp_solver._verify(self._result_masks(current))
         
         # Update the result
         self._current_result = SolverResult(
@@ -774,7 +795,9 @@ class CleanModernApp:
             num_groups=self._current_result.num_groups,
             elapsed=self._current_result.elapsed,
             verified=is_verified,
-            first_legal_elapsed=self._current_result.first_legal_elapsed
+            first_legal_elapsed=self._current_result.first_legal_elapsed,
+            groups_complete=self._current_result.groups_complete,
+            group_masks=self._current_result.group_masks,
         )
         
         # Get run number
@@ -897,6 +920,41 @@ class CleanModernApp:
             return "Stopped by user; returned current best-so-far solution"
         return "Completed normal solve flow"
 
+    def _result_preview_groups(self, result: SolverResult, limit: int) -> list[list[int]]:
+        return result.preview_groups(limit)
+
+    def _can_store_result(self, result: SolverResult) -> bool:
+        return bool(result.groups_complete and result.num_groups <= MAX_STORE_GROUPS)
+
+    def _estimate_verify_interactions(self, result: SolverResult) -> int:
+        p = self._params
+        try:
+            return math.comb(p["n"], p["j"]) * result.num_groups
+        except Exception:
+            return MAX_VERIFY_INTERACTIONS + 1
+
+    def _can_verify_result(self, result: SolverResult) -> bool:
+        if result.verified:
+            return True
+        return self._estimate_verify_interactions(result) <= MAX_VERIFY_INTERACTIONS
+
+    def _result_masks(self, result: SolverResult):
+        if result.group_masks is not None:
+            return result.group_masks
+        return [elements_to_mask(grp) for grp in result.groups]
+
+    def _show_large_result_notice(self, action: str, result: SolverResult) -> None:
+        preview_count = len(result.groups)
+        self._show_custom_dialog(
+            "结果过大",
+            (
+                f"当前结果共有 {result.num_groups} 组，"
+                f"GUI 仅保留前 {preview_count} 组预览。\n\n"
+                f"为避免界面卡死，暂不支持在界面中直接{action}这类超大结果。"
+            ),
+            "error"
+        )
+
     # --- Parameter reading ---
 
     def _read_params(self) -> dict[str, int]:
@@ -1014,15 +1072,42 @@ class CleanModernApp:
         self._current_result = result
         self._exec_btn.config(state="normal")
         self._cancel_btn.config(state="disabled")
-        self._store_btn.config(state="normal")
-        self._verify_btn.config(state="normal")
+        self._store_btn.config(
+            state="normal" if self._can_store_result(result) else "disabled"
+        )
+        self._verify_btn.config(
+            state="normal" if self._can_verify_result(result) else "disabled"
+        )
         self._print_btn.config(state="normal")
 
         # Get run number
         p = self._params
         run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
         current_run = run_count + 1
-        self._render_result_summary(result, current_run)
+
+        self._on_print()
+        filename = (
+            f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-"
+            f"{current_run}-{result.num_groups}"
+        )
+        self._file_lbl.set(f"Result: {filename}")
+        if self._stop_reason == "deadline":
+            self._prog_var.set(
+                f"Time budget reached ({self._time_budget_sec:.0f}s): "
+                f"returned {result.num_groups} groups in {result.elapsed:.2f}s "
+                f"(full details)"
+            )
+        elif self._stop_reason == "manual_cancel":
+            self._prog_var.set(
+                f"Stopped by user: returned {result.num_groups} groups "
+                f"in {result.elapsed:.2f}s (full details)"
+            )
+        else:
+            self._prog_var.set(
+                f"Generated: {result.num_groups} groups in {result.elapsed:.2f}s "
+                f"(Run #{current_run}, full details)"
+            )
+        self._prog_bar["value"] = 100
         return
         
         # Show beautiful summary
@@ -1073,6 +1158,21 @@ class CleanModernApp:
             else "---"
         )
         reason_text = self._result_reason_text()
+        detail_mode = (
+            f"Preview only ({len(result.groups)}/{result.num_groups})"
+            if not result.groups_complete or len(result.groups) < result.num_groups
+            else "Full details loaded"
+        )
+        store_mode = (
+            "Enabled" if self._can_store_result(result)
+            else "Disabled for large result"
+        )
+        verify_mode = (
+            "Already verified" if result.verified else (
+                "Enabled" if self._can_verify_result(result)
+                else "Disabled for large result"
+            )
+        )
         lines = [
             "",
             "  " + "=" * 35,
@@ -1089,15 +1189,18 @@ class CleanModernApp:
             f"    First Legal       : {first_legal}",
             f"    Run Number        : {self._ordinal(current_run)}",
             f"    Return Mode       : {reason_text}",
-            "    Verification      : Pending (click Verify button)",
+            f"    Verification      : {'Passed' if result.verified else 'Pending'}",
+            f"    Detail Mode       : {detail_mode}",
+            f"    Store Action      : {store_mode}",
+            f"    Verify Action     : {verify_mode}",
             "  " + "-" * 66,
             "",
             "",
             "  Next Steps:",
             "",
-            "    1. Click 'Verify' to validate the solution",
-            "    2. Click 'Print Details' to see all groups",
-            "    3. Click 'Store' to save to database",
+            "    1. Click 'Print Details' to preview groups",
+            "    2. Click 'Verify' when manual verification is enabled",
+            "    3. Click 'Store' when database saving is enabled",
             "",
             "",
         ]
