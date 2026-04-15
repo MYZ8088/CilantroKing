@@ -305,6 +305,12 @@ class CleanModernApp:
             wrap="none"
         )
         self._result_text.pack(fill="both", expand=True)
+        
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            self._result_text.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        self._result_text.bind("<MouseWheel>", _on_mousewheel)
 
         self._file_lbl = tk.StringVar()
         tk.Label(
