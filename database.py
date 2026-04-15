@@ -22,6 +22,8 @@ class SavedResult:
     groups: list[list[int]]
     filename: str
     created_at: str
+    elapsed_time: float
+    solution_found_time: float | None
 
 
 class ResultDatabase:
@@ -46,6 +48,8 @@ class ResultDatabase:
                     samples     TEXT    NOT NULL,
                     groups_data TEXT    NOT NULL,
                     filename    TEXT    NOT NULL,
+                    elapsed_time REAL   NOT NULL DEFAULT 0.0,
+                    solution_found_time REAL DEFAULT NULL,
                     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -57,6 +61,8 @@ class ResultDatabase:
         m: int, n: int, k: int, j: int, s: int,
         samples: list[int],
         groups: list[list[int]],
+        elapsed_time: float = 0.0,
+        solution_found_time: float | None = None,
     ) -> str:
         run = self._next_run(m, n, k, j, s)
         num_groups = len(groups)
@@ -64,10 +70,10 @@ class ResultDatabase:
         with sqlite3.connect(self._path) as conn:
             conn.execute(
                 "INSERT INTO results "
-                "(m,n,k,j,s,run_number,num_groups,samples,groups_data,filename) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "(m,n,k,j,s,run_number,num_groups,samples,groups_data,filename,elapsed_time,solution_found_time) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (m, n, k, j, s, run, num_groups,
-                 json.dumps(samples), json.dumps(groups), filename),
+                 json.dumps(samples), json.dumps(groups), filename, elapsed_time, solution_found_time),
             )
         return filename
 
@@ -118,4 +124,6 @@ class ResultDatabase:
             groups=json.loads(row["groups_data"]),
             filename=row["filename"],
             created_at=row["created_at"],
+            elapsed_time=row["elapsed_time"],
+            solution_found_time=row["solution_found_time"],
         )

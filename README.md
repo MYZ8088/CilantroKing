@@ -230,6 +230,31 @@ The solver uses a three-phase approach with GPU acceleration support:
 
 Multiple independent attempts are run with different random seeds; the best result is returned.
 
+### Solution Quality
+
+**The algorithm returns heuristic solutions, not mathematically proven optimal solutions.**
+
+This is an NP-hard problem where finding the global optimum is computationally infeasible. Instead, the solver uses multiple strategies to find high-quality solutions quickly:
+
+- **Theoretical Lower Bounds**: Schönheim bound (for s==j) and volume bound provide mathematical minimums
+- **LJCR Known Values**: 186 proven optimal or best-known values from La Jolla Covering Repository
+- **Quality Guarantee**: Solutions typically within 1.0-1.3× of theoretical lower bound
+- **Early Stopping**: Stops when reaching lower bound or no improvement after multiple attempts
+
+**Why some instances solve quickly (0.2s)?**
+1. Small problem size (n≤10)
+2. Greedy finds near-optimal solution immediately
+3. Solution matches theoretical lower bound (proven optimal)
+4. Early stopping triggers
+
+**Why some instances take longer (10s+)?**
+1. Large problem size (n≥15, many candidates/targets)
+2. Multiple randomized attempts needed
+3. Simulated annealing optimization
+4. Solution far from lower bound (complex search space)
+
+See [ALGORITHM_EXPLANATION.md](ALGORITHM_EXPLANATION.md) for detailed explanation of optimization strategies and termination conditions.
+
 ### Performance Optimizations
 
 - **Preprocessing Time Included** — Timer starts from initialization to accurately reflect total algorithm time

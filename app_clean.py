@@ -14,7 +14,7 @@ from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
 
-DEFAULT_TIME_BUDGET_SEC = 100.0
+DEFAULT_TIME_BUDGET_SEC = 150.0
 
 
 class CleanModernApp:
@@ -149,6 +149,7 @@ class CleanModernApp:
         row2.pack(fill="x")
         self._j = self._param_entry(row2, "Test Size (j)", "5", "Constraint: s≤j≤k", 0)
         self._s = self._param_entry(row2, "Threshold (s)", "5", "Range: 3-7", 1)
+        self._timeout = self._param_entry(row2, "Timeout (sec)", "150", "Max runtime: 30-600s", 2)
 
         # Sample Selection Card
         sample_card = self._create_card(scroll_frame, "📊 Sample Selection")
@@ -413,7 +414,7 @@ class CleanModernApp:
         """Show a beautiful custom dialog."""
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        dialog.geometry("500x280")
+        dialog.geometry("500x320")
         dialog.resizable(False, False)
         dialog.configure(bg="white")
         
@@ -472,7 +473,7 @@ class CleanModernApp:
         
         ok_btn = tk.Button(
             btn_frame,
-            text="确定",
+            text="OK",
             command=dialog.destroy,
             bg=color,
             fg="white",
@@ -568,7 +569,7 @@ class CleanModernApp:
         # No button (gray)
         no_btn = tk.Button(
             btn_frame,
-            text="取消",
+            text="Cancel",
             command=on_no,
             bg="gray40",
             fg="white",
@@ -586,7 +587,7 @@ class CleanModernApp:
         # Yes button (red for delete)
         yes_btn = tk.Button(
             btn_frame,
-            text="确定删除",
+            text="Confirm Delete",
             command=on_yes,
             bg="#ef4444",
             fg="white",
@@ -661,6 +662,9 @@ class CleanModernApp:
         self._params = p
         self._samples_lbl.config(text=f"Selected samples: {samples}")
 
+        # Update time budget from user input
+        self._time_budget_sec = p["timeout"]
+        
         self._cancel_flag = False
         self._deadline_stop_requested = False
         self._stop_reason = "running"
@@ -692,12 +696,21 @@ class CleanModernApp:
             p["m"], p["n"], p["k"], p["j"], p["s"],
             samples,
             real_groups,
+            self._current_result.elapsed,
+            self._current_result.first_legal_elapsed,
         )
         self._file_lbl.set(f"📄 Stored: {fn}")
+        
+        # Build message with solution found time if available
+        time_info = f"Total Time: {self._current_result.elapsed:.2f}s"
+        if self._current_result.first_legal_elapsed is not None:
+            time_info += f"\nSolution Found: {self._current_result.first_legal_elapsed:.2f}s"
+        
         self._show_custom_dialog(
             "Saved Successfully",
             f"✓ Result saved to database!\n\n"
-            f"Filename: {fn}\n\n"
+            f"Filename: {fn}\n"
+            f"{time_info}\n\n"
             f"You can view it in the Database Browser.",
             "success"
         )
@@ -911,6 +924,7 @@ class CleanModernApp:
         k = _int(self._k, "k")
         j = _int(self._j, "j")
         s = _int(self._s, "s")
+        timeout = _int(self._timeout, "timeout")
 
         if not 45 <= m <= 54:
             raise ValueError("m must be between 45 and 54")
@@ -924,7 +938,9 @@ class CleanModernApp:
             raise ValueError(f"Need s({s}) ≤ j({j}) ≤ k({k})")
         if n > m:
             raise ValueError(f"n({n}) cannot exceed m({m})")
-        return {"m": m, "n": n, "k": k, "j": j, "s": s}
+        if not 30 <= timeout <= 600:
+            raise ValueError("Timeout must be between 30 and 600 seconds")
+        return {"m": m, "n": n, "k": k, "j": j, "s": s, "timeout": timeout}
 
     def _select_samples(self, p: dict[str, int]) -> list[int] | None:
         m, n = p["m"], p["n"]
@@ -1313,6 +1329,14 @@ class CleanModernApp:
             "",
             f"  File: {r.filename}",
             f"  Created: {r.created_at}",
+            f"  Total Algorithm Time: {r.elapsed_time:.2f}s",
+        ]
+        
+        # Add solution found time if available
+        if r.solution_found_time is not None:
+            lines.append(f"  Solution Found Time: {r.solution_found_time:.2f}s")
+        
+        lines.extend([
             "",
             "  Parameters:",
             f"    • Population (m): {r.m}",
@@ -1328,7 +1352,8 @@ class CleanModernApp:
             f"  GROUPS ({r.num_groups} total)",
             "═" * 70,
             "",
-        ]
+        ])
+        
         for i, grp in enumerate(r.groups, 1):
             lines.append(f"  Group {i:3d}: {', '.join(map(str, grp))}")
         
