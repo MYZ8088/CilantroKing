@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import queue
 import random
 import threading
@@ -13,9 +14,7 @@ from typing import Optional
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
-
 DEFAULT_TIME_BUDGET_SEC = 150.0
-
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
@@ -716,7 +715,7 @@ class CleanModernApp:
         )
 
     def _on_print(self) -> None:
-        """Print detailed group information."""
+        """Print full detailed group information."""
         if not self._current_result:
             return
         
@@ -766,20 +765,17 @@ class CleanModernApp:
         if not self._current_result:
             return
         
-        # Perform verification
-        masks = [elements_to_mask(grp) for grp in self._current_result.groups]
+        p = self._params
+        current = self._current_result
         
-        # Import verification function from solver
+        # Perform verification
         from solver import CoveringDesignSolver
         
-        # Create a temporary solver instance for verification
-        p = self._params
         temp_solver = CoveringDesignSolver(
             n=p["n"], k=p["k"], j=p["j"], s=p["s"],
             num_attempts=1
         )
-        
-        is_verified = temp_solver._verify(masks)
+        is_verified = temp_solver._verify(self._result_masks(current))
         
         # Update the result
         self._current_result = SolverResult(
@@ -787,7 +783,9 @@ class CleanModernApp:
             num_groups=self._current_result.num_groups,
             elapsed=self._current_result.elapsed,
             verified=is_verified,
-            first_legal_elapsed=self._current_result.first_legal_elapsed
+            first_legal_elapsed=self._current_result.first_legal_elapsed,
+            groups_complete=self._current_result.groups_complete,
+            group_masks=self._current_result.group_masks,
         )
         
         # Get run number
@@ -909,6 +907,11 @@ class CleanModernApp:
         if self._stop_reason == "manual_cancel":
             return "Stopped by user; returned current best-so-far solution"
         return "Completed normal solve flow"
+
+    def _result_masks(self, result: SolverResult):
+        if result.group_masks is not None:
+            return result.group_masks
+        return [elements_to_mask(grp) for grp in result.groups]
 
     # --- Parameter reading ---
 
@@ -1038,48 +1041,8 @@ class CleanModernApp:
         p = self._params
         run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
         current_run = run_count + 1
-        self._render_result_summary(result, current_run)
-        return
-        
-        # Show beautiful summary
-        lines = [
-            "",
-            "  " + "🎉" * 35,
-            "",
-            "            ✨ SOLUTION GENERATED SUCCESSFULLY ✨",
-            "",
-            "  " + "🎉" * 35,
-            "",
-            "",
-            "  📊 Summary:",
-            "  " + "─" * 66,
-            f"    Groups Found      : {result.num_groups}",
-            f"    Time Elapsed      : {result.elapsed:.2f}s",
-            f"    Run Number        : {self._ordinal(current_run)}",
-            f"    Verification      : ⏳ Pending (click Verify button)",
-            "  " + "─" * 66,
-            "",
-            "",
-            "  🔍 Next Steps:",
-            "",
-            "    1️⃣  Click '✓ Verify' to validate the solution",
-            "    2️⃣  Click '🖨 Print Details' to see all groups",
-            "    3️⃣  Click '💾 Store' to save to database",
-            "",
-            "",
-        ]
-        
-        self._result_text.delete("1.0", "end")
-        self._result_text.insert("1.0", "\n".join(lines))
 
-        # Format: m-n-k-j-s-x-y where x is run number, y is number of groups
-        filename = f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-{current_run}-{result.num_groups}"
-        self._file_lbl.set(f"📄 {filename}")
-        
-        self._prog_var.set(
-            f"✅ Generated: {result.num_groups} groups in {result.elapsed:.2f}s (Run #{current_run})"
-        )
-        self._prog_bar["value"] = 100
+        self._render_result_summary(result, current_run)
 
     def _render_result_summary(self, result: SolverResult, current_run: int) -> None:
         p = self._params
@@ -1089,6 +1052,7 @@ class CleanModernApp:
             else "---"
         )
         reason_text = self._result_reason_text()
+        
         lines = [
             "",
             "  " + "=" * 35,
@@ -1105,14 +1069,14 @@ class CleanModernApp:
             f"    First Legal       : {first_legal}",
             f"    Run Number        : {self._ordinal(current_run)}",
             f"    Return Mode       : {reason_text}",
-            "    Verification      : Pending (click Verify button)",
+            f"    Verification      : {'Passed' if result.verified else 'Pending'}",
             "  " + "-" * 66,
             "",
             "",
             "  Next Steps:",
             "",
-            "    1. Click 'Verify' to validate the solution",
-            "    2. Click 'Print Details' to see all groups",
+            "    1. Click 'Print Details' to view all groups",
+            "    2. Click 'Verify' to validate the solution",
             "    3. Click 'Store' to save to database",
             "",
             "",

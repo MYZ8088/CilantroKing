@@ -18,6 +18,8 @@ import math
 import os
 import random
 import site
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from itertools import combinations
@@ -26,6 +28,8 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+from identity_cover_module import build_identity_cover
 
 
 def _add_windows_cuda_dll_dirs() -> None:
@@ -74,6 +78,11 @@ except Exception:  # pragma: no cover - optional dependency
     cp = None
 
 
+_GPU_BATCH_PROBE_OK: bool | None = None
+_GPU_BATCH_PROBE_AT: float | None = None
+_GPU_BATCH_PROBE_RETRY_SEC = 30.0
+
+
 # ---------------------------------------------------------------------------
 # Bitmask utilities
 # ---------------------------------------------------------------------------
@@ -96,6 +105,94 @@ def popcount_uint32(arr: np.ndarray) -> np.ndarray:
     np.multiply(x, np.uint32(0x01010101), out=x)
     np.right_shift(x, np.uint32(24), out=x)
     return x.astype(np.int32)
+
+
+def _gpu_chunk_for_batch(num_cands: int, num_targets: int) -> int:
+    assert cp is not None
+    free_mem, _ = cp.cuda.Device().mem_info
+    approx_bytes_per_target = max(4, num_cands * 12)
+    chunk = int(max(
+        2048,
+        min(num_targets, (free_mem * 0.3) // approx_bytes_per_target),
+    ))
+    return max(1, chunk)
+
+
+def _gpu_batch_scores_inline(
+    cands: np.ndarray,
+    targets: np.ndarray,
+    *,
+    containment: bool,
+    s: int,
+    cancel_fn: Callable[[], bool],
+) -> np.ndarray:
+    assert cp is not None
+    cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+    targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+    scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
+    chunk = _gpu_chunk_for_batch(len(cands), len(targets))
+
+    for start in range(0, len(targets), chunk):
+        if cancel_fn():
+            break
+        t_chunk = targets_gpu[start : start + chunk]
+        ints = cands_gpu[:, None] & t_chunk[None, :]
+        if containment:
+            hits = ints == t_chunk[None, :]
+        else:
+            x = cp.array(ints, dtype=cp.uint32, copy=True)
+            t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+            x = x - t
+            t = x & cp.uint32(0x33333333)
+            x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+            x = x + t
+            x = x + (x >> cp.uint32(4))
+            x = x & cp.uint32(0x0F0F0F0F)
+            x = x * cp.uint32(0x01010101)
+            x = x >> cp.uint32(24)
+            hits = x.astype(cp.int32) >= s
+        scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
+    return cp.asnumpy(scores_gpu)
+
+
+def _gpu_batch_best_inline(
+    cands: np.ndarray,
+    targets: np.ndarray,
+    *,
+    containment: bool,
+    s: int,
+    cancel_fn: Callable[[], bool],
+) -> tuple[int, int]:
+    assert cp is not None
+    cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+    targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+    scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
+    chunk = _gpu_chunk_for_batch(len(cands), len(targets))
+
+    for start in range(0, len(targets), chunk):
+        if cancel_fn():
+            break
+        t_chunk = targets_gpu[start : start + chunk]
+        ints = cands_gpu[:, None] & t_chunk[None, :]
+        if containment:
+            hits = ints == t_chunk[None, :]
+        else:
+            x = cp.array(ints, dtype=cp.uint32, copy=True)
+            t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+            x = x - t
+            t = x & cp.uint32(0x33333333)
+            x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+            x = x + t
+            x = x + (x >> cp.uint32(4))
+            x = x & cp.uint32(0x0F0F0F0F)
+            x = x * cp.uint32(0x01010101)
+            x = x >> cp.uint32(24)
+            hits = x.astype(cp.int32) >= s
+        scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
+
+    best_local = int(cp.argmax(scores_gpu).get())
+    best_count = int(scores_gpu[best_local].get())
+    return best_local, best_count
 
 
 def mask_to_elements(mask: int) -> list[int]:
@@ -127,6 +224,74 @@ def _extract_bits(mask: int) -> list[int]:
     return bits
 
 
+def _probe_gpu_batch_path() -> bool:
+    """Run a one-time subprocess probe before enabling the large-batch GPU path."""
+    global _GPU_BATCH_PROBE_OK, _GPU_BATCH_PROBE_AT
+    now = time.time()
+    if _GPU_BATCH_PROBE_OK is True:
+        return _GPU_BATCH_PROBE_OK
+    if (
+        _GPU_BATCH_PROBE_OK is False
+        and _GPU_BATCH_PROBE_AT is not None
+        and (now - _GPU_BATCH_PROBE_AT) < _GPU_BATCH_PROBE_RETRY_SEC
+    ):
+        return False
+    if cp is None:
+        _GPU_BATCH_PROBE_OK = False
+        _GPU_BATCH_PROBE_AT = now
+        return False
+    if os.environ.get("CK_SKIP_GPU_PROBE") == "1":
+        _GPU_BATCH_PROBE_OK = True
+        _GPU_BATCH_PROBE_AT = now
+        return True
+
+    probe_script = r"""
+import os
+import numpy as np
+from solver import _add_windows_cuda_dll_dirs
+_add_windows_cuda_dll_dirs()
+import cupy as cp
+
+cands = np.arange(1024, dtype=np.uint32)
+targets = np.arange(24576, dtype=np.uint32)
+cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+ints = cands_gpu[:, None] & targets_gpu[None, :]
+x = cp.array(ints, dtype=cp.uint32, copy=True)
+t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+x = x - t
+t = x & cp.uint32(0x33333333)
+x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+x = x + t
+x = x + (x >> cp.uint32(4))
+x = x & cp.uint32(0x0F0F0F0F)
+x = x * cp.uint32(0x01010101)
+x = x >> cp.uint32(24)
+hits = x.astype(cp.int32) >= 1
+scores = cp.sum(hits, axis=1, dtype=cp.int32)
+cp.argmax(scores).get()
+print("gpu-probe-ok")
+"""
+    env = os.environ.copy()
+    env["CK_SKIP_GPU_PROBE"] = "1"
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-u", "-c", probe_script],
+            capture_output=True,
+            text=True,
+            timeout=12,
+            env=env,
+        )
+        _GPU_BATCH_PROBE_OK = (
+            completed.returncode == 0
+            and "gpu-probe-ok" in completed.stdout
+        )
+    except Exception:
+        _GPU_BATCH_PROBE_OK = False
+    _GPU_BATCH_PROBE_AT = now
+    return _GPU_BATCH_PROBE_OK
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -149,9 +314,25 @@ class SolverResult:
     elapsed: float = 0.0
     verified: bool = False
     first_legal_elapsed: float | None = None
+    groups_complete: bool = True
+    group_masks: np.ndarray | None = None
 
     def __post_init__(self) -> None:
-        self.num_groups = len(self.groups)
+        if self.num_groups <= 0:
+            if self.group_masks is not None:
+                self.num_groups = int(len(self.group_masks))
+            else:
+                self.num_groups = len(self.groups)
+
+    def preview_groups(self, limit: int | None = None) -> list[list[int]]:
+        """Return at most ``limit`` groups, materialising from masks if needed."""
+        if self.group_masks is None or self.groups_complete:
+            if limit is None or len(self.groups) <= limit:
+                return self.groups
+            return self.groups[:limit]
+
+        masks = self.group_masks if limit is None else self.group_masks[:limit]
+        return [sorted(mask_to_elements(int(m))) for m in masks]
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +355,8 @@ MAX_BATCH_BYTES = _env_int("CK_BATCH_BYTES", DEFAULT_BATCH_BYTES)
 
 class CoveringDesignSolver:
     """Greedy + local-search + SA solver for covering designs."""
+
+    _huge_result_preview_limit = 128
 
     def __init__(
         self,
@@ -218,29 +401,39 @@ class CoveringDesignSolver:
             [elements_to_mask(c) for c in combinations(elems, j)],
             dtype=np.uint32,
         )
-        self.cand_masks = np.array(
-            [elements_to_mask(c) for c in combinations(elems, k)],
-            dtype=np.uint32,
-        )
+        if j == k:
+            self.cand_masks = self.target_masks.copy()
+        else:
+            self.cand_masks = np.array(
+                [elements_to_mask(c) for c in combinations(elems, k)],
+                dtype=np.uint32,
+            )
         self.num_targets = len(self.target_masks)
         self.num_cands = len(self.cand_masks)
         self._interaction_scale = self.num_targets * self.num_cands
+        self._identity_cover = bool(self._containment and self.j == self.k)
 
         self._batch_bytes = MAX_BATCH_BYTES
         self._base_top_k = self._choose_top_k()
         self._cand_has_elem: np.ndarray | None = None
         self._target_has_elem: np.ndarray | None = None
+        self._gpu_enabled = False
+        self._gpu_failed = False
+        self._cand_masks_gpu = None
+        self._target_masks_gpu = None
+        self._cov_table: list[np.ndarray] | None = None
+        self._inv_table: list[np.ndarray] | None = None
+        self._jsub_table: np.ndarray | None = None
+
+        if self._identity_cover:
+            return
 
         self._gpu_enabled = bool(
             _env_int("CK_USE_GPU", 1)
             and cp is not None
             and self._interaction_scale >= 500_000_000
+            and _probe_gpu_batch_path()
         )
-        self._gpu_failed = False
-
-        self._cov_table: list[np.ndarray] | None = None
-        self._inv_table: list[np.ndarray] | None = None
-        self._jsub_table: np.ndarray | None = None
 
         mem_estimate = self.num_cands * self.num_targets
         if self._containment and mem_estimate > 20_000_000:
@@ -340,11 +533,47 @@ class CoveringDesignSolver:
             top_k = min(self.num_cands, max(top_k, 2000))
         return max(1, top_k)
 
+    def _gpu_active(self) -> bool:
+        return bool(self._gpu_enabled and not self._gpu_failed and cp is not None)
+
+    def _gpu_disable(self, message: str) -> None:
+        if not self._gpu_failed:
+            self._gpu_failed = True
+            self._report("gpu", message)
+
+    def _ensure_gpu_mask_cache(self) -> None:
+        assert cp is not None
+        if self._target_masks_gpu is None:
+            self._target_masks_gpu = cp.asarray(self.target_masks, dtype=cp.uint32)
+        if self._cand_masks_gpu is None:
+            self._cand_masks_gpu = cp.asarray(self.cand_masks, dtype=cp.uint32)
+
+    def _gpu_target_chunk(self, num_cands: int, num_targets: int) -> int:
+        assert cp is not None
+        free_mem, _ = cp.cuda.Device().mem_info
+        budget = free_mem * 0.3
+        full_bytes = num_cands * num_targets * 12
+        if full_bytes <= budget:
+            return int(num_targets)
+        approx_bytes_per_target = max(4, num_cands * 12)
+        chunk = int(budget // approx_bytes_per_target)
+        return int(max(2048, min(num_targets, max(1, chunk))))
+
+    def _gpu_mask_chunk(self, num_targets: int, num_masks: int) -> int:
+        assert cp is not None
+        free_mem, _ = cp.cuda.Device().mem_info
+        approx_bytes_per_mask = max(8, num_targets * 12)
+        chunk = int((free_mem * 0.2) // approx_bytes_per_mask)
+        return int(max(1, min(num_masks, max(1, chunk))))
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def solve(self) -> SolverResult:
+        if self._identity_cover:
+            return self._solve_identity_cover()
+
         # Timer already started in __init__, no need to reset
         best: list[int] | None = None
         stagnant = 0
@@ -425,6 +654,57 @@ class CoveringDesignSolver:
             elapsed=time.time() - self._t0,
             verified=False if self._skip_final_verify else self._verify(masks),
             first_legal_elapsed=self._first_legal_elapsed,
+        )
+
+    def _solve_identity_cover(self) -> SolverResult:
+        """专用模块：显式构造 j=k=s 时所需的全部组合。"""
+        self._report(
+            "special",
+            f"Identity module: building explicit C({self.n},{self.k}) groups",
+        )
+
+        def _on_progress(done: int, total: int) -> None:
+            remaining = max(0, total - done)
+            self._report(
+                "special",
+                f"Identity build progress: {done}/{total}",
+                iteration=done,
+                sol_size=done,
+                remaining=remaining,
+                total=total,
+            )
+
+        built = build_identity_cover(
+            self.n,
+            self.k,
+            cancel_fn=self._cancel,
+            progress_cb=_on_progress,
+            report_interval=8192,
+        )
+
+        masks = built.masks
+        if built.complete:
+            self._note_legal_solution()
+
+        preview_limit = min(self._huge_result_preview_limit, len(masks))
+        preview_masks = masks[:preview_limit]
+        preview_groups = [sorted(mask_to_elements(int(m))) for m in preview_masks]
+
+        fully_materialized = built.complete and len(masks) <= self._huge_result_preview_limit
+        groups = (
+            [sorted(mask_to_elements(int(m))) for m in masks]
+            if fully_materialized
+            else preview_groups
+        )
+
+        return SolverResult(
+            groups=groups,
+            num_groups=len(masks),
+            elapsed=time.time() - self._t0,
+            verified=bool(built.complete and not self._skip_final_verify),
+            first_legal_elapsed=self._first_legal_elapsed,
+            groups_complete=fully_materialized,
+            group_masks=masks,
         )
 
     def _effective_attempts(self) -> int:
@@ -671,11 +951,11 @@ class CoveringDesignSolver:
         targets_gpu = cp.asarray(targets, dtype=cp.uint32)
         scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
 
-        free_mem, _ = cp.cuda.Device().mem_info
+        _, total_mem = cp.cuda.Device().mem_info
         approx_bytes_per_target = max(4, len(cands) * 12)
         chunk = int(max(2048, min(
             len(targets),
-            (free_mem * 0.2) // approx_bytes_per_target
+            (total_mem * 0.45) // approx_bytes_per_target
         )))
 
         for start in range(0, len(targets), chunk):
@@ -686,7 +966,17 @@ class CoveringDesignSolver:
             if self._containment:
                 hits = ints == t_chunk[None, :]
             else:
-                hits = self._gpu_popcount_uint32(ints) >= self.s
+                x = cp.array(ints, dtype=cp.uint32, copy=True)
+                t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+                x = x - t
+                t = x & cp.uint32(0x33333333)
+                x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+                x = x + t
+                x = x + (x >> cp.uint32(4))
+                x = x & cp.uint32(0x0F0F0F0F)
+                x = x * cp.uint32(0x01010101)
+                x = x >> cp.uint32(24)
+                hits = x.astype(cp.int32) >= self.s
             scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
         return cp.asnumpy(scores_gpu)
 
@@ -698,11 +988,11 @@ class CoveringDesignSolver:
         targets_gpu = cp.asarray(targets, dtype=cp.uint32)
         scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
 
-        free_mem, _ = cp.cuda.Device().mem_info
+        _, total_mem = cp.cuda.Device().mem_info
         approx_bytes_per_target = max(4, len(cands) * 12)
         chunk = int(max(2048, min(
             len(targets),
-            (free_mem * 0.2) // approx_bytes_per_target
+            (total_mem * 0.45) // approx_bytes_per_target
         )))
 
         for start in range(0, len(targets), chunk):
@@ -713,12 +1003,29 @@ class CoveringDesignSolver:
             if self._containment:
                 hits = ints == t_chunk[None, :]
             else:
-                hits = self._gpu_popcount_uint32(ints) >= self.s
+                x = cp.array(ints, dtype=cp.uint32, copy=True)
+                t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+                x = x - t
+                t = x & cp.uint32(0x33333333)
+                x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+                x = x + t
+                x = x + (x >> cp.uint32(4))
+                x = x & cp.uint32(0x0F0F0F0F)
+                x = x * cp.uint32(0x01010101)
+                x = x >> cp.uint32(24)
+                hits = x.astype(cp.int32) >= self.s
             scores_gpu += cp.sum(hits, axis=1, dtype=cp.int32)
 
         best_local = int(cp.argmax(scores_gpu).get())
         best_count = int(scores_gpu[best_local].get())
         return best_local, best_count
+
+    def _gpu_hits(self, masks_gpu, targets_gpu):
+        assert cp is not None
+        ints = masks_gpu[:, None] & targets_gpu[None, :]
+        if self._containment:
+            return ints == targets_gpu[None, :]
+        return self._gpu_popcount_uint32(ints) >= self.s
 
     @staticmethod
     def _gpu_popcount_uint32(arr):
@@ -756,6 +1063,15 @@ class CoveringDesignSolver:
     def _verify(self, masks: list[int]) -> bool:
         if not masks:
             return self.num_targets == 0
+        if (
+            self._gpu_active()
+            and self.num_targets >= 4096
+            and len(masks) * self.num_targets >= 20_000_000
+        ):
+            try:
+                return self._verify_gpu(masks)
+            except Exception:
+                self._gpu_disable("GPU verification failed; falling back to CPU")
         covered = np.zeros(self.num_targets, dtype=bool)
         for m in masks:
             ints = np.uint32(m) & self.target_masks
@@ -766,6 +1082,16 @@ class CoveringDesignSolver:
         return bool(np.all(covered))
 
     def _uncovered_masks(self, masks: list[int]) -> np.ndarray:
+        if (
+            self._gpu_active()
+            and self.num_targets >= 4096
+            and masks
+            and len(masks) * self.num_targets >= 20_000_000
+        ):
+            try:
+                return self._uncovered_masks_gpu(masks)
+            except Exception:
+                self._gpu_disable("GPU uncovered-mask scan failed; falling back to CPU")
         covered = np.zeros(self.num_targets, dtype=bool)
         for m in masks:
             ints = np.uint32(m) & self.target_masks
@@ -774,6 +1100,50 @@ class CoveringDesignSolver:
             else:
                 covered |= popcount_uint32(ints) >= self.s
         return self.target_masks[~covered]
+
+    def _mark_covered_gpu(self, mask: int, uncovered: np.ndarray) -> None:
+        assert cp is not None
+        self._ensure_gpu_mask_cache()
+        assert self._target_masks_gpu is not None
+        mask_gpu = cp.asarray([mask], dtype=cp.uint32)
+        covered = cp.asnumpy(self._gpu_hits(mask_gpu, self._target_masks_gpu)[0])
+        uncovered &= ~covered
+
+    def _verify_gpu(self, masks: list[int]) -> bool:
+        assert cp is not None
+        self._ensure_gpu_mask_cache()
+        assert self._target_masks_gpu is not None
+        masks_arr = np.asarray(masks, dtype=np.uint32)
+        masks_gpu = cp.asarray(masks_arr, dtype=cp.uint32)
+        covered_gpu = cp.zeros(self.num_targets, dtype=cp.bool_)
+        chunk = self._gpu_mask_chunk(self.num_targets, len(masks_arr))
+
+        for start in range(0, len(masks_arr), chunk):
+            if self._cancel():
+                break
+            chunk_gpu = masks_gpu[start : start + chunk]
+            hits = self._gpu_hits(chunk_gpu, self._target_masks_gpu)
+            covered_gpu |= cp.sum(hits, axis=0, dtype=cp.int32) > 0
+            if int(cp.sum(covered_gpu, dtype=cp.int32).get()) == self.num_targets:
+                return True
+        return int(cp.sum(covered_gpu, dtype=cp.int32).get()) == self.num_targets
+
+    def _uncovered_masks_gpu(self, masks: list[int]) -> np.ndarray:
+        assert cp is not None
+        self._ensure_gpu_mask_cache()
+        assert self._target_masks_gpu is not None
+        masks_arr = np.asarray(masks, dtype=np.uint32)
+        masks_gpu = cp.asarray(masks_arr, dtype=cp.uint32)
+        covered_gpu = cp.zeros(self.num_targets, dtype=cp.bool_)
+        chunk = self._gpu_mask_chunk(self.num_targets, len(masks_arr))
+
+        for start in range(0, len(masks_arr), chunk):
+            if self._cancel():
+                break
+            chunk_gpu = masks_gpu[start : start + chunk]
+            hits = self._gpu_hits(chunk_gpu, self._target_masks_gpu)
+            covered_gpu |= cp.sum(hits, axis=0, dtype=cp.int32) > 0
+        return cp.asnumpy(self._target_masks_gpu[~covered_gpu])
 
     # ------------------------------------------------------------------
     # Local search

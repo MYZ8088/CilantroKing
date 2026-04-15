@@ -2,6 +2,7 @@
 
 import sys
 import os
+from itertools import combinations
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from solver import CoveringDesignSolver
@@ -65,9 +66,48 @@ def test_eg4():
     assert g <= 14
 
 
+def test_identity_case_explicit_build():
+    solver = CoveringDesignSolver(n=7, k=4, j=4, s=4, num_attempts=1)
+    result = solver.solve()
+    assert result.verified
+    assert result.num_groups == 35
+    assert result.group_masks is not None
+    masks = [int(m) for m in result.group_masks.tolist()]
+    assert len(masks) == 35
+    assert len(set(masks)) == 35
+
+    expected = set()
+    for grp in combinations(range(7), 4):
+        mask = 0
+        for idx in grp:
+            mask |= 1 << idx
+        expected.add(mask)
+
+    assert set(masks) == expected
+    assert result.groups_complete
+
+
+def test_identity_case_cancel_partial_build():
+    calls = {"count": 0}
+
+    def _cancel() -> bool:
+        calls["count"] += 1
+        return calls["count"] > 10
+
+    solver = CoveringDesignSolver(
+        n=7, k=4, j=4, s=4, num_attempts=1, cancel_fn=_cancel
+    )
+    result = solver.solve()
+    assert result.group_masks is not None
+    assert 0 < result.num_groups < 35
+    assert not result.verified
+    assert not result.groups_complete
+
+
 if __name__ == "__main__":
     tests = [test_eg1, test_eg3, test_eg5, test_eg7, test_eg8, test_eg9,
-             test_eg2, test_eg4]
+             test_eg2, test_eg4, test_identity_case_explicit_build,
+             test_identity_case_cancel_partial_build]
     print("Running verification tests against PDF examples:\n")
     passed = 0
     for t in tests:
