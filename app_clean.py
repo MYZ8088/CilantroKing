@@ -1085,29 +1085,7 @@ class CleanModernApp:
         run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
         current_run = run_count + 1
 
-        self._on_print()
-        filename = (
-            f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-"
-            f"{current_run}-{result.num_groups}"
-        )
-        self._file_lbl.set(f"Result: {filename}")
-        if self._stop_reason == "deadline":
-            self._prog_var.set(
-                f"Time budget reached ({self._time_budget_sec:.0f}s): "
-                f"returned {result.num_groups} groups in {result.elapsed:.2f}s "
-                f"(full details)"
-            )
-        elif self._stop_reason == "manual_cancel":
-            self._prog_var.set(
-                f"Stopped by user: returned {result.num_groups} groups "
-                f"in {result.elapsed:.2f}s (full details)"
-            )
-        else:
-            self._prog_var.set(
-                f"Generated: {result.num_groups} groups in {result.elapsed:.2f}s "
-                f"(Run #{current_run}, full details)"
-            )
-        self._prog_bar["value"] = 100
+        self._render_result_summary(result, current_run)
         return
         
         # Show beautiful summary
