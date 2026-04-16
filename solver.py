@@ -335,6 +335,16 @@ class SolverResult:
         return [sorted(mask_to_elements(int(m))) for m in masks]
 
 
+@dataclass(frozen=True)
+class GreedyStrategy:
+    name: str
+    coverage_weight: float = 1.0
+    rarity_weight: float = 0.0
+    randomize: bool = False
+    top_k_scale: float = 1.0
+    destroy_repair_rounds: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Solver
 # ---------------------------------------------------------------------------
@@ -365,7 +375,6 @@ class CoveringDesignSolver:
         j: int,
         s: int,
         *,
-        t: int = 1,
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
         num_attempts: int = 3,
@@ -378,7 +387,6 @@ class CoveringDesignSolver:
         self.k = k
         self.j = j
         self.s = s
-        self.t = t
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
@@ -395,11 +403,6 @@ class CoveringDesignSolver:
             raise ValueError(f"Need s<=j<=k, got s={s} j={j} k={k}")
         if n < k:
             raise ValueError(f"Need n>=k, got n={n} k={k}")
-        
-        # Validate t parameter for t-covering
-        max_t = comb(k, s)  # Maximum possible groups that can cover a j-subset
-        if not 1 <= t <= max_t:
-            raise ValueError(f"t must be 1-{max_t} (C(k={k},s={s})), got {t}")
 
         self._containment = s == j
 
@@ -422,8 +425,13 @@ class CoveringDesignSolver:
 
         self._batch_bytes = MAX_BATCH_BYTES
         self._base_top_k = self._choose_top_k()
+        self._cand_index_map = {
+            int(mask): idx for idx, mask in enumerate(self.cand_masks)
+        }
         self._cand_has_elem: np.ndarray | None = None
         self._target_has_elem: np.ndarray | None = None
+        self._target_weights = np.ones(self.num_targets, dtype=np.float64)
+        self._base_weighted_scores: np.ndarray | None = None
         self._gpu_enabled = False
         self._gpu_failed = False
         self._cand_masks_gpu = None
@@ -452,6 +460,10 @@ class CoveringDesignSolver:
 
         if self._cov_table is None:
             self._init_heuristic_cache()
+
+        self._target_weights = self._build_target_weights()
+        if self._inv_table is not None:
+            self._base_weighted_scores = self._build_base_weighted_scores()
 
     # ------------------------------------------------------------------
     # Precomputation
@@ -521,6 +533,35 @@ class CoveringDesignSolver:
             (self.target_masks[:, None] & bits[None, :]) != 0
         ).astype(np.uint8, copy=False)
 
+    def _build_target_weights(self) -> np.ndarray:
+        if self._inv_table is not None:
+            support = np.array(
+                [len(cands) for cands in self._inv_table],
+                dtype=np.float64,
+            )
+        else:
+            cand_has = self._cand_has_elem
+            target_has = self._target_has_elem
+            assert cand_has is not None and target_has is not None
+            elem_support = cand_has.sum(axis=0, dtype=np.float64)
+            elem_support = np.maximum(elem_support, 1.0)
+            support = (target_has @ elem_support) / max(1, self.j)
+
+        mean_support = max(float(np.mean(support)), 1.0)
+        rarity = np.sqrt(mean_support / np.maximum(support, 1.0))
+        return np.clip(rarity, 1.0, 3.0)
+
+    def _build_base_weighted_scores(self) -> np.ndarray:
+        inv_table = self._inv_table
+        assert inv_table is not None
+
+        weighted_scores = np.zeros(self.num_cands, dtype=np.float64)
+        for ti, affected in enumerate(inv_table):
+            if len(affected) == 0:
+                continue
+            weighted_scores[affected] += self._target_weights[ti]
+        return weighted_scores
+
     def _choose_top_k(self) -> int:
         if self._interaction_scale >= 60_000_000_000:
             return min(600, self.num_cands)
@@ -539,6 +580,12 @@ class CoveringDesignSolver:
         if remaining <= 5_000:
             top_k = min(self.num_cands, max(top_k, 2000))
         return max(1, top_k)
+
+    def _strategy_top_k(self, remaining: int, strategy: GreedyStrategy) -> int:
+        top_k = self._top_k_for_remaining(remaining)
+        if strategy.top_k_scale != 1.0:
+            top_k = int(math.ceil(top_k * strategy.top_k_scale))
+        return max(1, min(self.num_cands, top_k))
 
     def _gpu_active(self) -> bool:
         return bool(self._gpu_enabled and not self._gpu_failed and cp is not None)
@@ -581,7 +628,6 @@ class CoveringDesignSolver:
         if self._identity_cover:
             return self._solve_identity_cover()
 
-        # Timer already started in __init__, no need to reset
         best: list[int] | None = None
         stagnant = 0
 
@@ -595,13 +641,16 @@ class CoveringDesignSolver:
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
 
-        num_att = self._effective_attempts()
+        profiles = self._build_attempt_profiles(self._effective_attempts())
 
-        for attempt in range(1, num_att + 1):
+        for attempt, profile in enumerate(profiles, start=1):
             if self._cancel():
                 break
-            self._report("greedy", f"Attempt {attempt}/{num_att}: greedy...")
-            sol, complete, remaining = self._greedy(randomize=attempt > 1)
+            self._report(
+                "greedy",
+                f"Attempt {attempt}/{len(profiles)}: {profile.name}...",
+            )
+            sol, complete, remaining = self._greedy(profile)
             if complete and (best is None or len(sol) < len(best)):
                 best = sol
                 self._note_legal_solution()
@@ -627,17 +676,11 @@ class CoveringDesignSolver:
                         self._note_legal_solution()
                 break
 
-            self._report("optimize", f"Attempt {attempt}: optimise ({len(sol)} groups)...")
-            sol = self._local_search(sol)
-            if not self._cancel() and self._allow_swap(sol):
-                sol = self._swap_improve(sol)
-                sol = self._local_search(sol)
-
-            if not self._cancel() and 3 < len(sol) <= 200:
-                sa_budget = self._sa_time_budget(sol)
-                if sa_budget > 0:
-                    sol = self._sa_improve(sol, max_time=sa_budget)
-                sol = self._local_search(sol)
+            self._report(
+                "optimize",
+                f"Attempt {attempt}: optimise {profile.name} ({len(sol)} groups)...",
+            )
+            sol = self._optimise_solution(sol, profile)
 
             improved = best is None or len(sol) < len(best)
             if improved:
@@ -715,15 +758,116 @@ class CoveringDesignSolver:
         )
 
     def _effective_attempts(self) -> int:
-        """Scale attempts with instance size to avoid runaway runtime."""
         num_att = self._num_attempts
         if self._interaction_scale >= 900_000_000:
             return min(num_att, 1)
-        if self._interaction_scale >= 120_000_000 or self.num_cands >= 30_000:
+        if self._interaction_scale >= 350_000_000 or self.num_cands >= 30_000:
+            return min(num_att, 2)
+        if (
+            self._interaction_scale >= 120_000_000
+            or self.num_targets >= 3_000
+            or self.num_cands >= 12_000
+        ):
             return min(num_att, 2)
         if self.num_targets >= 700 or self.num_cands >= 5_000:
-            return min(num_att, 2)
+            return min(num_att, 3)
         return num_att
+
+    def _build_attempt_profiles(self, num_attempts: int) -> list[GreedyStrategy]:
+        if self._cov_table is None:
+            pool = [
+                GreedyStrategy(name="coverage-topk"),
+                GreedyStrategy(
+                    name="weighted-topk",
+                    coverage_weight=1.0,
+                    rarity_weight=0.55,
+                    randomize=True,
+                    top_k_scale=1.25,
+                ),
+                GreedyStrategy(
+                    name="rarity-balance",
+                    coverage_weight=0.9,
+                    rarity_weight=0.45,
+                    randomize=True,
+                    top_k_scale=1.35,
+                    destroy_repair_rounds=1,
+                ),
+                GreedyStrategy(
+                    name="repair-driven",
+                    coverage_weight=0.85,
+                    rarity_weight=0.55,
+                    randomize=True,
+                    top_k_scale=1.2,
+                    destroy_repair_rounds=2,
+                ),
+                GreedyStrategy(
+                    name="explore-topk",
+                    coverage_weight=0.95,
+                    rarity_weight=0.35,
+                    randomize=True,
+                    top_k_scale=1.5,
+                    destroy_repair_rounds=1,
+                ),
+            ]
+        else:
+            pool = [
+                GreedyStrategy(name="coverage-first"),
+                GreedyStrategy(
+                    name="rarity-balance",
+                    coverage_weight=1.0,
+                    rarity_weight=0.2,
+                    randomize=True,
+                    destroy_repair_rounds=1,
+                ),
+                GreedyStrategy(
+                    name="rarity-first",
+                    coverage_weight=0.85,
+                    rarity_weight=0.45,
+                    randomize=True,
+                    destroy_repair_rounds=1,
+                ),
+                GreedyStrategy(
+                    name="repair-driven",
+                    coverage_weight=0.9,
+                    rarity_weight=0.25,
+                    randomize=True,
+                    destroy_repair_rounds=2,
+                ),
+                GreedyStrategy(
+                    name="coverage-random",
+                    coverage_weight=1.0,
+                    rarity_weight=0.1,
+                    randomize=True,
+                ),
+            ]
+        return pool[:num_attempts]
+
+    def _optimise_solution(
+        self,
+        sol: list[int],
+        strategy: GreedyStrategy,
+    ) -> list[int]:
+        sol = self._local_search(sol)
+
+        if not self._cancel() and strategy.destroy_repair_rounds > 0:
+            sol = self._destroy_repair(
+                sol,
+                strategy,
+                rounds=strategy.destroy_repair_rounds,
+            )
+            sol = self._local_search(sol)
+
+        if not self._cancel() and self._allow_swap(sol):
+            sol = self._swap_improve(sol)
+            sol = self._local_search(sol)
+
+        if not self._cancel() and 3 < len(sol) <= 200:
+            sa_budget = self._sa_time_budget(sol)
+            if sa_budget > 0:
+                sol = self._sa_improve(sol, max_time=sa_budget)
+            sol = self._local_search(sol)
+
+        return sol
 
     def _allow_swap(self, sol: list[int]) -> bool:
         if len(sol) > 60:
@@ -753,60 +897,151 @@ class CoveringDesignSolver:
     # Greedy dispatch
     # ------------------------------------------------------------------
 
-    def _greedy(self, *, randomize: bool = False) -> tuple[list[int], bool, int]:
+    def _greedy(
+        self,
+        strategy: GreedyStrategy,
+        *,
+        partial: list[int] | None = None,
+        best_limit: int | None = None,
+    ) -> tuple[list[int], bool, int]:
         if self._cov_table is not None:
-            return self._greedy_incremental(randomize)
-        return self._greedy_heuristic(randomize)
+            return self._greedy_incremental(
+                strategy,
+                partial=partial,
+                best_limit=best_limit,
+            )
+        return self._greedy_heuristic(
+            strategy,
+            partial=partial,
+            best_limit=best_limit,
+        )
 
-    def _greedy_incremental(self, randomize: bool) -> tuple[list[int], bool, int]:
-        """Fast greedy using precomputed coverage + incremental score updates."""
+    def _initial_greedy_state(
+        self,
+        partial: list[int] | None,
+    ) -> tuple[list[int], set[int], np.ndarray, int]:
+        selected = list(partial or [])
+        chosen = set(selected)
+        uncov = np.ones(self.num_targets, dtype=bool)
+        for mask in selected:
+            self._mark_covered(mask, uncov)
+        return selected, chosen, uncov, int(uncov.sum())
+
+    def _candidate_indices(self, masks) -> np.ndarray:
+        indices = [
+            self._cand_index_map[mask]
+            for mask in masks
+            if mask in self._cand_index_map
+        ]
+        if not indices:
+            return np.empty(0, dtype=np.int32)
+        return np.array(indices, dtype=np.int32)
+
+    def _combine_candidate_scores(
+        self,
+        coverage_scores: np.ndarray,
+        rarity_scores: np.ndarray,
+        strategy: GreedyStrategy,
+    ) -> np.ndarray:
+        combined = (
+            coverage_scores.astype(np.float64) * strategy.coverage_weight
+            + rarity_scores * strategy.rarity_weight
+        )
+        if strategy.randomize:
+            combined += np.random.random(len(combined)) * 0.35
+        return combined
+
+    def _select_incremental_index(
+        self,
+        coverage_scores: np.ndarray,
+        rarity_scores: np.ndarray,
+        strategy: GreedyStrategy,
+    ) -> int:
+        combined = self._combine_candidate_scores(
+            coverage_scores,
+            rarity_scores,
+            strategy,
+        )
+        combined[coverage_scores <= 0] = -np.inf
+        return int(np.argmax(combined))
+
+    def _incremental_scores_from_uncovered(
+        self,
+        uncov: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        inv_table = self._inv_table
+        assert inv_table is not None
+
+        coverage_scores = np.zeros(self.num_cands, dtype=np.int32)
+        rarity_scores = np.zeros(self.num_cands, dtype=np.float64)
+
+        for ti in np.flatnonzero(uncov):
+            affected = inv_table[int(ti)]
+            if len(affected) == 0:
+                continue
+            coverage_scores[affected] += 1
+            rarity_scores[affected] += self._target_weights[int(ti)]
+
+        return coverage_scores, rarity_scores
+
+    def _greedy_incremental(
+        self,
+        strategy: GreedyStrategy,
+        *,
+        partial: list[int] | None = None,
+        best_limit: int | None = None,
+    ) -> tuple[list[int], bool, int]:
         cov_table = self._cov_table
         inv_table = self._inv_table
         assert cov_table is not None and inv_table is not None
 
-        if self.t == 1:
-            # Standard 1-covering: use boolean uncovered array
-            return self._greedy_incremental_t1(randomize, cov_table, inv_table)
+        selected, chosen, uncov, rem = self._initial_greedy_state(partial)
+        coverage_scores = np.array([len(c) for c in cov_table], dtype=np.int32)
+        if self._base_weighted_scores is not None:
+            rarity_scores = self._base_weighted_scores.copy()
         else:
-            # t-covering: use coverage count array
-            return self._greedy_incremental_tcov(randomize, cov_table, inv_table)
-    
-    def _greedy_incremental_t1(
-        self, randomize: bool, cov_table: list[np.ndarray], inv_table: list[np.ndarray]
-    ) -> tuple[list[int], bool, int]:
-        """Original 1-covering greedy algorithm."""
-        uncov = np.ones(self.num_targets, dtype=bool)
-        scores = np.array([len(c) for c in cov_table], dtype=np.int32)
-        selected: list[int] = []
+            rarity_scores = coverage_scores.astype(np.float64)
+
+        if selected:
+            coverage_scores, rarity_scores = self._incremental_scores_from_uncovered(uncov)
+            blocked = self._candidate_indices(chosen)
+            if len(blocked) > 0:
+                coverage_scores[blocked] = -1
+                rarity_scores[blocked] = -1.0
+
         iteration = 0
         log_interval = max(1, self.num_targets // 500)
-        rem = self.num_targets
 
         while rem > 0:
             if self._cancel():
                 break
+            if best_limit is not None and len(selected) >= best_limit:
+                break
 
-            if randomize:
-                fscores = scores.astype(np.float64)
-                fscores += np.random.random(self.num_cands) * 0.5
-                best_idx = int(fscores.argmax())
-            else:
-                best_idx = int(scores.argmax())
+            best_idx = self._select_incremental_index(
+                coverage_scores,
+                rarity_scores,
+                strategy,
+            )
 
-            cnt = int(scores[best_idx])
+            cnt = int(coverage_scores[best_idx])
             if cnt == 0:
                 break
 
             mask = int(self.cand_masks[best_idx])
             selected.append(mask)
+            chosen.add(mask)
 
             newly_covered = cov_table[best_idx][uncov[cov_table[best_idx]]]
             if len(newly_covered) == 0:
                 break
             uncov[newly_covered] = False
             for ti in newly_covered:
-                affected = inv_table[ti]
-                scores[affected] -= 1
+                affected = inv_table[int(ti)]
+                coverage_scores[affected] -= 1
+                rarity_scores[affected] -= self._target_weights[int(ti)]
+            coverage_scores[best_idx] = -1
+            rarity_scores[best_idx] = -1.0
 
             iteration += 1
             rem -= len(newly_covered)
@@ -819,109 +1054,32 @@ class CoveringDesignSolver:
                     remaining=rem,
                 )
         return selected, rem == 0, rem
-    
-    def _greedy_incremental_tcov(
-        self, randomize: bool, cov_table: list[np.ndarray], inv_table: list[np.ndarray]
+
+    def _greedy_heuristic(
+        self,
+        strategy: GreedyStrategy,
+        *,
+        partial: list[int] | None = None,
+        best_limit: int | None = None,
     ) -> tuple[list[int], bool, int]:
-        """t-covering greedy algorithm: each target needs t covers."""
-        # Track how many times each target has been covered
-        cover_count = np.zeros(self.num_targets, dtype=np.int32)
-        # Track how many times each candidate has been used
-        cand_used_count = np.zeros(self.num_cands, dtype=np.int32)
-        # Score: how many under-covered targets this candidate helps
-        scores = np.zeros(self.num_cands, dtype=np.int32)
-        
-        # Initialize scores: count targets that need more coverage
-        for cand_idx in range(self.num_cands):
-            scores[cand_idx] = len(cov_table[cand_idx])
-        
-        selected: list[int] = []
+        selected, chosen, uncov, rem = self._initial_greedy_state(partial)
         iteration = 0
-        log_interval = max(1, self.num_targets // 500)
-        rem = self.num_targets  # Number of targets not yet covered t times
 
         while rem > 0:
             if self._cancel():
                 break
-
-            if randomize:
-                fscores = scores.astype(np.float64)
-                fscores += np.random.random(self.num_cands) * 0.5
-                best_idx = int(fscores.argmax())
-            else:
-                best_idx = int(scores.argmax())
-
-            cnt = int(scores[best_idx])
-            if cnt == 0:
-                # No candidate can help any under-covered target
+            if best_limit is not None and len(selected) >= best_limit:
                 break
-
-            mask = int(self.cand_masks[best_idx])
-            selected.append(mask)
-            cand_used_count[best_idx] += 1
-
-            # Update coverage counts and scores
-            targets_helped = cov_table[best_idx]
-            newly_satisfied = 0
-            
-            # Recalculate score for this candidate based on current coverage
-            new_score = 0
-            for ti in targets_helped:
-                old_count = cover_count[ti]
-                cover_count[ti] += 1
-                
-                # If this target just reached t covers, it's satisfied
-                if old_count < self.t and cover_count[ti] >= self.t:
-                    newly_satisfied += 1
-                    # Update scores: this target no longer needs coverage
-                    for cand_idx in inv_table[ti]:
-                        scores[cand_idx] -= 1
-                elif cover_count[ti] < self.t:
-                    # Target still needs coverage, count it for this candidate's new score
-                    new_score += 1
-            
-            # Update the score for the candidate we just used
-            scores[best_idx] = new_score
-
-            iteration += 1
-            rem -= newly_satisfied
-            if iteration % log_interval == 0 or rem == 0:
-                self._report(
-                    "greedy",
-                    f"Iter {iteration}: +1 (helps {len(targets_helped)}), {rem} left",
-                    iteration=iteration,
-                    sol_size=len(selected),
-                    remaining=rem,
-                )
-        return selected, rem == 0, rem
-
-    def _greedy_heuristic(self, randomize: bool) -> tuple[list[int], bool, int]:
-        if self.t == 1:
-            # Standard 1-covering
-            return self._greedy_heuristic_t1(randomize)
-        else:
-            # t-covering
-            return self._greedy_heuristic_tcov(randomize)
-    
-    def _greedy_heuristic_t1(self, randomize: bool) -> tuple[list[int], bool, int]:
-        """Original 1-covering heuristic algorithm."""
-        uncov = np.ones(self.num_targets, dtype=bool)
-        selected: list[int] = []
-        iteration = 0
-        rem = self.num_targets
-
-        while rem > 0:
-            if self._cancel():
-                break
-            if self._should_finish_fast(rem):
+            if partial is None and self._should_finish_fast(rem):
                 tail = self._fast_complete_selected(selected, uncov)
                 if tail:
                     return tail, True, 0
                 break
-            mask, cnt = self._heuristic_pick(uncov, rem, randomize)
+            mask, cnt = self._heuristic_pick(uncov, rem, strategy, chosen)
             if cnt == 0:
                 break
             selected.append(mask)
+            chosen.add(mask)
             self._mark_covered(mask, uncov)
             iteration += 1
             rem = int(uncov.sum())
@@ -933,110 +1091,62 @@ class CoveringDesignSolver:
                 remaining=rem,
             )
         return selected, rem == 0, rem
-    
-    def _greedy_heuristic_tcov(self, randomize: bool) -> tuple[list[int], bool, int]:
-        """t-covering heuristic algorithm."""
-        cover_count = np.zeros(self.num_targets, dtype=np.int32)
-        selected: list[int] = []
-        iteration = 0
-        rem = self.num_targets
-
-        while rem > 0:
-            if self._cancel():
-                break
-            
-            # Find under-covered targets (covered < t times)
-            under_covered = cover_count < self.t
-            if not under_covered.any():
-                break
-            
-            mask, cnt = self._heuristic_pick_tcov(cover_count, under_covered, randomize)
-            if cnt == 0:
-                break
-            
-            selected.append(mask)
-            # Update coverage counts
-            newly_satisfied = self._mark_covered_tcov(mask, cover_count)
-            iteration += 1
-            rem -= newly_satisfied
-            self._report(
-                "greedy",
-                f"Iter {iteration}: +1 (helps {cnt}), {rem} left",
-                iteration=iteration,
-                sol_size=len(selected),
-                remaining=rem,
-            )
-        return selected, rem == 0, rem
 
     def _heuristic_pick(
-        self, uncov: np.ndarray, remaining: int, randomize: bool,
+        self,
+        uncov: np.ndarray,
+        remaining: int,
+        strategy: GreedyStrategy,
+        chosen: set[int],
     ) -> tuple[int, int]:
-        """Element-frequency heuristic then top-K exact evaluation."""
         cand_has = self._cand_has_elem
         target_has = self._target_has_elem
         assert cand_has is not None and target_has is not None
 
-        freq = target_has[uncov].sum(axis=0, dtype=np.int64)
+        uncov_weights = self._target_weights[uncov]
+        if strategy.rarity_weight > 0:
+            freq = target_has[uncov].T @ uncov_weights
+        else:
+            freq = target_has[uncov].sum(axis=0, dtype=np.int64)
         h = cand_has @ freq
 
-        top_k = self._top_k_for_remaining(remaining)
-        if top_k < self.num_cands:
-            top_idx = np.argpartition(h, -top_k)[-top_k:]
+        blocked = self._candidate_indices(chosen)
+        available = np.ones(self.num_cands, dtype=bool)
+        if len(blocked) > 0:
+            available[blocked] = False
+
+        top_k = self._strategy_top_k(remaining, strategy)
+        available_idx = np.flatnonzero(available)
+        if len(available_idx) == 0:
+            return 0, 0
+        if top_k < len(available_idx):
+            local_h = h[available_idx]
+            top_local = np.argpartition(local_h, -top_k)[-top_k:]
+            top_idx = available_idx[top_local]
         else:
-            top_idx = np.arange(self.num_cands)
+            top_idx = available_idx
         top_cands = self.cand_masks[top_idx]
         uncov_t = self.target_masks[uncov]
 
-        if randomize:
-            raw_counts = self._batch_scores(top_cands, uncov_t)
-            noisy = raw_counts.astype(np.float64)
-            noisy += np.random.random(len(noisy)) * 0.5
-            best_local = int(np.argmax(noisy))
-            return int(top_cands[best_local]), int(raw_counts[best_local])
+        if (
+            strategy.coverage_weight == 1.0
+            and strategy.rarity_weight == 0.0
+            and not strategy.randomize
+        ):
+            best_local, best_count = self._batch_best(top_cands, uncov_t)
+            return int(top_cands[best_local]), best_count
 
-        best_local, best_count = self._batch_best(top_cands, uncov_t)
-        return int(top_cands[best_local]), best_count
-    
-    def _heuristic_pick_tcov(
-        self, cover_count: np.ndarray, under_covered: np.ndarray, randomize: bool,
-    ) -> tuple[int, int]:
-        """Heuristic pick for t-covering: prioritize under-covered targets."""
-        cand_has = self._cand_has_elem
-        target_has = self._target_has_elem
-        assert cand_has is not None and target_has is not None
-
-        # Frequency of elements in under-covered targets
-        freq = target_has[under_covered].sum(axis=0, dtype=np.int64)
-        h = cand_has @ freq
-
-        top_k = self._top_k_for_remaining(int(under_covered.sum()))
-        if top_k < self.num_cands:
-            top_idx = np.argpartition(h, -top_k)[-top_k:]
-        else:
-            top_idx = np.arange(self.num_cands)
-        top_cands = self.cand_masks[top_idx]
-        uncov_t = self.target_masks[under_covered]
-
-        if randomize:
-            raw_counts = self._batch_scores(top_cands, uncov_t)
-            noisy = raw_counts.astype(np.float64)
-            noisy += np.random.random(len(noisy)) * 0.5
-            best_local = int(np.argmax(noisy))
-            return int(top_cands[best_local]), int(raw_counts[best_local])
-
-        best_local, best_count = self._batch_best(top_cands, uncov_t)
-        return int(top_cands[best_local]), best_count
-    
-    def _mark_covered_tcov(self, mask: int, cover_count: np.ndarray) -> int:
-        """Update coverage counts for t-covering. Returns number of newly satisfied targets."""
-        newly_satisfied = 0
-        for ti in range(self.num_targets):
-            if popcount_uint32(np.array([mask & self.target_masks[ti]], dtype=np.uint32))[0] >= self.s:
-                old_count = cover_count[ti]
-                cover_count[ti] += 1
-                if old_count < self.t and cover_count[ti] >= self.t:
-                    newly_satisfied += 1
-        return newly_satisfied
+        raw_counts = self._batch_scores(top_cands, uncov_t)
+        top_h = h[top_idx].astype(np.float64)
+        scale = max(float(np.max(top_h)), 1.0)
+        rarity_scores = top_h / scale
+        combined = self._combine_candidate_scores(
+            raw_counts,
+            rarity_scores,
+            strategy,
+        )
+        best_local = int(np.argmax(combined))
+        return int(top_cands[best_local]), int(raw_counts[best_local])
 
     # ------------------------------------------------------------------
     # Batch scoring
@@ -1240,36 +1350,23 @@ class CoveringDesignSolver:
     def _verify(self, masks: list[int]) -> bool:
         if not masks:
             return self.num_targets == 0
-        
-        if self.t == 1:
-            # Standard 1-covering verification
-            if (
-                self._gpu_active()
-                and self.num_targets >= 4096
-                and len(masks) * self.num_targets >= 20_000_000
-            ):
-                try:
-                    return self._verify_gpu(masks)
-                except Exception:
-                    self._gpu_disable("GPU verification failed; falling back to CPU")
-            covered = np.zeros(self.num_targets, dtype=bool)
-            for m in masks:
-                ints = np.uint32(m) & self.target_masks
-                if self._containment:
-                    covered |= ints == self.target_masks
-                else:
-                    covered |= popcount_uint32(ints) >= self.s
-            return bool(np.all(covered))
-        else:
-            # t-covering verification: each target must be covered at least t times
-            cover_count = np.zeros(self.num_targets, dtype=np.int32)
-            for m in masks:
-                ints = np.uint32(m) & self.target_masks
-                if self._containment:
-                    cover_count += (ints == self.target_masks).astype(np.int32)
-                else:
-                    cover_count += (popcount_uint32(ints) >= self.s).astype(np.int32)
-            return bool(np.all(cover_count >= self.t))
+        if (
+            self._gpu_active()
+            and self.num_targets >= 4096
+            and len(masks) * self.num_targets >= 20_000_000
+        ):
+            try:
+                return self._verify_gpu(masks)
+            except Exception:
+                self._gpu_disable("GPU verification failed; falling back to CPU")
+        covered = np.zeros(self.num_targets, dtype=bool)
+        for m in masks:
+            ints = np.uint32(m) & self.target_masks
+            if self._containment:
+                covered |= ints == self.target_masks
+            else:
+                covered |= popcount_uint32(ints) >= self.s
+        return bool(np.all(covered))
 
     def _uncovered_masks(self, masks: list[int]) -> np.ndarray:
         if (
@@ -1383,6 +1480,85 @@ class CoveringDesignSolver:
         if self._containment:
             return ints == self.target_masks
         return popcount_uint32(ints) >= self.s
+
+    def _allow_destroy_repair(self, sol: list[int]) -> bool:
+        if len(sol) < 8 or len(sol) > 160:
+            return False
+        if self.num_cands > 12_000:
+            return False
+        return self._interaction_scale <= 180_000_000
+
+    def _destroy_repair_order(self, sol: list[int]) -> list[int]:
+        cov_count = np.zeros(self.num_targets, dtype=np.int32)
+        sol_cov: list[np.ndarray] = []
+
+        for mask in sol:
+            covered = self._covers_bool(mask)
+            sol_cov.append(covered)
+            cov_count += covered.astype(np.int32)
+
+        ranked: list[tuple[float, int, int, int]] = []
+        for idx, covered in enumerate(sol_cov):
+            fragile = covered & (cov_count <= 2)
+            fragile_weight = float(self._target_weights[fragile].sum())
+            unique_targets = int(np.sum(cov_count[covered] == 1))
+            total_targets = int(np.sum(covered))
+            ranked.append((fragile_weight, unique_targets, total_targets, idx))
+
+        ranked.sort()
+        return [idx for _, _, _, idx in ranked]
+
+    def _destroy_repair(
+        self,
+        sol: list[int],
+        strategy: GreedyStrategy,
+        *,
+        rounds: int = 1,
+    ) -> list[int]:
+        if not self._allow_destroy_repair(sol):
+            return sol
+
+        best = list(sol)
+        for _ in range(rounds):
+            if self._cancel():
+                break
+
+            destroy_count = min(5, max(2, len(best) // 15))
+            if len(best) <= destroy_count:
+                break
+
+            order = self._destroy_repair_order(best)
+            remove_set = set(order[:destroy_count])
+            partial = [
+                mask for idx, mask in enumerate(best)
+                if idx not in remove_set
+            ]
+
+            repaired, complete, _ = self._greedy(
+                strategy,
+                partial=partial,
+                best_limit=len(best),
+            )
+            if not complete:
+                fallback = self._fast_complete_partial_solution(
+                    partial,
+                    best_limit=len(best),
+                )
+                if fallback is None:
+                    continue
+                repaired = fallback
+
+            candidate = self._local_search(repaired)
+            if len(candidate) < len(best):
+                best = candidate
+                self._report(
+                    "optimize",
+                    f"Destroy-repair improved to {len(best)} groups",
+                )
+            else:
+                break
+
+        return best
 
     def _swap_improve(self, sol: list[int], rounds: int = 3) -> list[int]:
         if len(sol) > 60:

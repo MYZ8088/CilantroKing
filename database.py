@@ -26,6 +26,14 @@ class SavedResult:
     solution_found_time: float | None
 
 
+@dataclass(frozen=True)
+class SavedResultSummary:
+    id: int
+    filename: str
+    created_at: str
+    num_groups: int
+
+
 class ResultDatabase:
     """CRUD operations for covering design results."""
 
@@ -52,6 +60,14 @@ class ResultDatabase:
                     solution_found_time REAL DEFAULT NULL,
                     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_results_params
+                ON results (m, n, k, j, s)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_results_created_at
+                ON results (created_at DESC)
             """)
 
     # --- write --------------------------------------------------------
@@ -87,6 +103,23 @@ class ResultDatabase:
             ).fetchall()
         return [self._to_obj(r) for r in rows]
 
+    def list_summaries(self) -> list[SavedResultSummary]:
+        with sqlite3.connect(self._path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, filename, created_at, num_groups "
+                "FROM results ORDER BY created_at DESC"
+            ).fetchall()
+        return [
+            SavedResultSummary(
+                id=row["id"],
+                filename=row["filename"],
+                created_at=row["created_at"],
+                num_groups=row["num_groups"],
+            )
+            for row in rows
+        ]
+
     def load(self, result_id: int) -> Optional[SavedResult]:
         with sqlite3.connect(self._path) as conn:
             conn.row_factory = sqlite3.Row
@@ -111,6 +144,15 @@ class ResultDatabase:
                 (m, n, k, j, s),
             ).fetchone()
         return row[0] if row else 1
+
+    def count_by_params(self, m: int, n: int, k: int, j: int, s: int) -> int:
+        with sqlite3.connect(self._path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM results "
+                "WHERE m=? AND n=? AND k=? AND j=? AND s=?",
+                (m, n, k, j, s),
+            ).fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def _to_obj(row: sqlite3.Row) -> SavedResult:

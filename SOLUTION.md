@@ -47,7 +47,7 @@ ai_homework/
 ├── solver.py          # 核心求解器（算法主体）
 ├── bounds.py          # 下界理论 + LJCR 已知最优值（验证用）
 ├── database.py        # SQLite 结果存储
-├── app.py             # Tkinter GUI
+├── app_clean.py       # Tkinter GUI
 ├── main.py            # 程序入口
 ├── requirements.txt   # 依赖：numpy>=1.24
 └── tests/

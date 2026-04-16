@@ -39,3 +39,4 @@ htmlcov/
 # --- Temp / logs ---
 *.log
 *.tmp
+.codex/
