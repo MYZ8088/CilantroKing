@@ -9,7 +9,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
-from typing import Optional
+from typing import Callable, Optional
 
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
@@ -40,6 +40,11 @@ class CleanModernApp:
         
         self.root.configure(bg=self.colors['bg'])
 
+        self._mousewheel_handlers: dict[str, Callable[[int], str | None]] = {}
+        self._setup_mousewheel_dispatcher()
+        self._main_layout_wide: bool | None = None
+        self._main_layout_refresh_job: str | None = None
+
         self.db = ResultDatabase()
         self._q: queue.Queue[SolverProgress | SolverResult | str] = queue.Queue()
         self._thread: Optional[threading.Thread] = None
@@ -55,6 +60,7 @@ class CleanModernApp:
 
         self._build_main_frame()
         self._build_db_frame()
+        self.root.bind("<Configure>", self._on_root_configure, add="+")
         self._show_main()
 
         self.root.after(120, self._poll_queue)
@@ -74,6 +80,104 @@ class CleanModernApp:
         self._main_frame.pack_forget()
         self._db_frame.pack(fill="both", expand=True)
         self._refresh_db_list()
+
+    def _setup_mousewheel_dispatcher(self) -> None:
+        self.root.bind_all("<MouseWheel>", self._dispatch_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._dispatch_mousewheel_linux_up, add="+")
+        self.root.bind_all("<Button-5>", self._dispatch_mousewheel_linux_down, add="+")
+
+    def _register_mousewheel_handler(
+        self,
+        widget: tk.Widget,
+        handler: Callable[[int], str | None],
+    ) -> None:
+        self._mousewheel_handlers[str(widget)] = handler
+
+    def _resolve_mousewheel_handler(
+        self,
+        widget: tk.Widget | None,
+    ) -> Callable[[int], str | None] | None:
+        current = widget
+        while current is not None:
+            handler = self._mousewheel_handlers.get(str(current))
+            if handler is not None:
+                return handler
+            current = getattr(current, "master", None)
+        return None
+
+    def _scroll_widget_y(self, widget: tk.Widget, units: int) -> str:
+        widget.yview_scroll(units, "units")
+        return "break"
+
+    def _dispatch_mousewheel(self, event) -> str | None:
+        handler = self._resolve_mousewheel_handler(event.widget)
+        if handler is None:
+            return None
+        delta = getattr(event, "delta", 0)
+        if delta == 0:
+            return None
+        units = -1 if delta > 0 else 1
+        return handler(units)
+
+    def _dispatch_mousewheel_linux_up(self, event) -> str | None:
+        handler = self._resolve_mousewheel_handler(event.widget)
+        if handler is None:
+            return None
+        return handler(-1)
+
+    def _dispatch_mousewheel_linux_down(self, event) -> str | None:
+        handler = self._resolve_mousewheel_handler(event.widget)
+        if handler is None:
+            return None
+        return handler(1)
+
+    def _on_root_configure(self, event) -> None:
+        if event.widget is not self.root:
+            return
+        self._schedule_main_layout_refresh()
+
+    def _schedule_main_layout_refresh(self) -> None:
+        if self._main_layout_refresh_job is not None:
+            self.root.after_cancel(self._main_layout_refresh_job)
+        self._main_layout_refresh_job = self.root.after(60, self._refresh_main_layout)
+
+    def _refresh_main_layout(self) -> None:
+        self._main_layout_refresh_job = None
+        if not hasattr(self, "_main_columns_container"):
+            return
+        wide = self._should_use_wide_main_layout()
+        self._apply_main_layout(wide)
+
+    def _should_use_wide_main_layout(self) -> bool:
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        try:
+            is_zoomed = str(self.root.state()) == "zoomed"
+        except tk.TclError:
+            is_zoomed = False
+        return is_zoomed or (width >= 1500 and height >= 850)
+
+    def _apply_main_layout(self, wide: bool) -> None:
+        if self._main_layout_wide == wide:
+            return
+        self._main_layout_wide = wide
+
+        self._main_left_col.pack_forget()
+        self._main_right_col.pack_forget()
+        self._main_canvas.pack_forget()
+        self._main_scrollbar.pack_forget()
+
+        if wide:
+            self._main_canvas.pack(side="left", fill="both", expand=True, padx=30, pady=(10, 20))
+            self._main_left_col.pack(side="left", fill="both", expand=True, padx=(0, 12))
+            self._main_right_col.pack(side="left", fill="both", expand=True, padx=(12, 0))
+            self._samples_lbl.config(wraplength=560)
+        else:
+            self._main_canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
+            self._main_scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
+            self._main_left_col.pack(fill="x")
+            self._main_right_col.pack(fill="both", expand=True)
+            self._samples_lbl.config(wraplength=850)
 
     # ==================================================================
     # Main screen
@@ -107,6 +211,8 @@ class CleanModernApp:
         canvas = tk.Canvas(self._main_frame, bg=self.colors['bg'], highlightthickness=0)
         scrollbar = tk.Scrollbar(self._main_frame, orient="vertical", command=canvas.yview)
         scroll_frame = tk.Frame(canvas, bg=self.colors['bg'])
+        self._main_canvas = canvas
+        self._main_scrollbar = scrollbar
 
         scroll_frame.bind(
             "<Configure>",
@@ -124,13 +230,25 @@ class CleanModernApp:
         canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
         scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
 
-        # Enable mouse wheel scrolling
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self._register_mousewheel_handler(
+            canvas,
+            lambda units: self._scroll_widget_y(canvas, units),
+        )
+        self._register_mousewheel_handler(
+            scroll_frame,
+            lambda units: self._scroll_widget_y(canvas, units),
+        )
+
+        self._main_columns_container = tk.Frame(scroll_frame, bg=self.colors['bg'])
+        self._main_columns_container.pack(fill="both", expand=True)
+
+        self._main_left_col = tk.Frame(self._main_columns_container, bg=self.colors['bg'])
+        self._main_right_col = tk.Frame(self._main_columns_container, bg=self.colors['bg'])
+        self._main_left_col.pack(fill="x")
+        self._main_right_col.pack(fill="both", expand=True)
 
         # Parameters Card
-        params_card = self._create_card(scroll_frame, "⚙️ Parameters")
+        params_card = self._create_card(self._main_left_col, "⚙️ Parameters")
         params_card.pack(fill="x", pady=(0, 15))
 
         params_content = tk.Frame(params_card, bg=self.colors['card_bg'])
@@ -151,7 +269,7 @@ class CleanModernApp:
         self._timeout = self._param_entry(row2, "Timeout (sec)", "150", "Max runtime: 30-600s", 2)
 
         # Sample Selection Card
-        sample_card = self._create_card(scroll_frame, "📊 Sample Selection")
+        sample_card = self._create_card(self._main_left_col, "📊 Sample Selection")
         sample_card.pack(fill="x", pady=(0, 15))
 
         sample_content = tk.Frame(sample_card, bg=self.colors['card_bg'])
@@ -213,7 +331,7 @@ class CleanModernApp:
         self._samples_lbl.pack(fill="x", pady=(12, 0))
 
         # Action Buttons
-        btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
+        btn_frame = tk.Frame(self._main_left_col, bg=self.colors['bg'])
         btn_frame.pack(fill="x", pady=(0, 15))
 
         left_btns = tk.Frame(btn_frame, bg=self.colors['bg'])
@@ -264,7 +382,7 @@ class CleanModernApp:
         ).pack()
 
         # Progress Card
-        progress_card = self._create_card(scroll_frame, "⏱ Progress")
+        progress_card = self._create_card(self._main_left_col, "⏱ Progress")
         progress_card.pack(fill="x", pady=(0, 15))
 
         progress_content = tk.Frame(progress_card, bg=self.colors['card_bg'])
@@ -288,7 +406,7 @@ class CleanModernApp:
         self._prog_bar["value"] = 0
 
         # Results Card
-        results_card = self._create_card(scroll_frame, "📋 Results")
+        results_card = self._create_card(self._main_right_col, "📋 Results")
         results_card.pack(fill="both", expand=True)
 
         results_content = tk.Frame(results_card, bg=self.colors['card_bg'])
@@ -305,12 +423,10 @@ class CleanModernApp:
             wrap="none"
         )
         self._result_text.pack(fill="both", expand=True)
-        
-        # Enable mouse wheel scrolling
-        def _on_mousewheel(event):
-            self._result_text.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        
-        self._result_text.bind("<MouseWheel>", _on_mousewheel)
+        self._register_mousewheel_handler(
+            self._result_text,
+            lambda units: self._scroll_widget_y(self._result_text, units),
+        )
 
         self._file_lbl = tk.StringVar()
         tk.Label(
@@ -320,6 +436,8 @@ class CleanModernApp:
             bg=self.colors['card_bg'],
             fg=self.colors['primary']
         ).pack(pady=(10, 0))
+
+        self.root.after(0, self._refresh_main_layout)
 
     def _create_card(self, parent, title: str) -> tk.Frame:
         """Create a modern card-style frame."""
@@ -1180,10 +1298,14 @@ class CleanModernApp:
         canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
         scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
 
-        # Enable mouse wheel scrolling
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self._register_mousewheel_handler(
+            canvas,
+            lambda units: self._scroll_widget_y(canvas, units),
+        )
+        self._register_mousewheel_handler(
+            scroll_frame,
+            lambda units: self._scroll_widget_y(canvas, units),
+        )
 
         # Action Buttons
         btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
