@@ -8,13 +8,52 @@ import random
 import threading
 import time
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Callable, Optional
 
-from database import ResultDatabase, SavedResult
+from database import ResultDatabase
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
 DEFAULT_TIME_BUDGET_SEC = 150.0
+
+
+@dataclass(frozen=True)
+class VerificationOutcome:
+    request_id: int
+    result: SolverResult
+
+
+@dataclass(frozen=True)
+class VerificationFailure:
+    request_id: int
+    message: str
+
+
+def _solver_result_masks(result: SolverResult):
+    if result.group_masks is not None:
+        return result.group_masks
+    return [elements_to_mask(grp) for grp in result.groups]
+
+
+def _build_verified_result(params: dict[str, int], result: SolverResult) -> SolverResult:
+    temp_solver = CoveringDesignSolver(
+        n=params["n"],
+        k=params["k"],
+        j=params["j"],
+        s=params["s"],
+        num_attempts=1,
+    )
+    is_verified = temp_solver._verify(_solver_result_masks(result))
+    return SolverResult(
+        groups=result.groups,
+        num_groups=result.num_groups,
+        elapsed=result.elapsed,
+        verified=is_verified,
+        first_legal_elapsed=result.first_legal_elapsed,
+        groups_complete=result.groups_complete,
+        group_masks=result.group_masks,
+    )
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
@@ -46,13 +85,17 @@ class CleanModernApp:
         self._main_layout_refresh_job: str | None = None
 
         self.db = ResultDatabase()
-        self._q: queue.Queue[SolverProgress | SolverResult | str] = queue.Queue()
+        self._q: queue.Queue[
+            SolverProgress | SolverResult | VerificationOutcome | VerificationFailure | str
+        ] = queue.Queue()
         self._thread: Optional[threading.Thread] = None
         self._cancel_flag = False
         self._time_budget_sec = DEFAULT_TIME_BUDGET_SEC
         self._run_started_at: float | None = None
         self._stop_reason = "idle"
         self._deadline_stop_requested = False
+        self._verification_request_id = 0
+        self._verification_in_progress = False
 
         self._current_result: Optional[SolverResult] = None
         self._current_samples: list[int] = []
@@ -886,20 +929,26 @@ class CleanModernApp:
 
     def _on_verify(self) -> None:
         """Verify the current solution and refresh display."""
-        if not self._current_result:
+        if not self._current_result or self._verification_in_progress:
             return
-        
-        p = self._params
-        current = self._current_result
-        
-        # Perform verification
-        from solver import CoveringDesignSolver
-        
-        temp_solver = CoveringDesignSolver(
-            n=p["n"], k=p["k"], j=p["j"], s=p["s"],
-            num_attempts=1
-        )
-        is_verified = temp_solver._verify(self._result_masks(current))
+
+        self._verification_in_progress = True
+        self._verification_request_id += 1
+        request_id = self._verification_request_id
+
+        self._exec_btn.config(state="disabled")
+        self._store_btn.config(state="disabled")
+        self._verify_btn.config(state="disabled")
+        self._print_btn.config(state="disabled")
+        self._clear_btn.config(state="disabled")
+        self._prog_var.set("Verifying current solution in background...")
+
+        threading.Thread(
+            target=self._run_verification,
+            args=(request_id, dict(self._params), self._current_result),
+            daemon=True,
+        ).start()
+        return
         
         # Update the result
         self._current_result = SolverResult(
@@ -996,15 +1045,102 @@ class CleanModernApp:
         status = "✅" if is_verified else "❌"
         self._file_lbl.set(f"{status} {filename}")
 
+    def _run_verification(
+        self,
+        request_id: int,
+        params: dict[str, int],
+        result: SolverResult,
+    ) -> None:
+        try:
+            verified_result = _build_verified_result(params, result)
+            self._q.put(VerificationOutcome(request_id, verified_result))
+        except Exception as exc:
+            self._q.put(VerificationFailure(request_id, f"Verification error: {exc}"))
+
+    def _on_verification_complete(self, outcome: VerificationOutcome) -> None:
+        if outcome.request_id != self._verification_request_id:
+            return
+
+        self._verification_in_progress = False
+        self._current_result = outcome.result
+        params = self._params
+        run_count = self._get_run_count(
+            params["m"], params["n"], params["k"], params["j"], params["s"]
+        )
+        current_run = run_count + 1
+        verified_label = "PASSED" if outcome.result.verified else "FAILED"
+
+        lines = [
+            "",
+            "=" * 70,
+            "  VERIFICATION RESULT",
+            "=" * 70,
+            "",
+            f"  Groups Found : {outcome.result.num_groups}",
+            f"  Time Elapsed : {outcome.result.elapsed:.2f}s",
+            f"  Run Number   : {self._ordinal(current_run)}",
+            f"  Status       : {verified_label}",
+            "",
+        ]
+        if outcome.result.verified:
+            lines.extend(
+                [
+                    "  All targets are covered.",
+                    "  The solution is ready to store or print.",
+                    "",
+                ]
+            )
+            self._prog_var.set(
+                f"Verified: {outcome.result.num_groups} groups (valid solution)"
+            )
+            self._show_custom_dialog(
+                "Verification Success",
+                "Solution verified successfully.\n\nAll targets are properly covered.",
+                "success",
+            )
+        else:
+            lines.extend(
+                [
+                    "  Some targets are still uncovered.",
+                    "  Please review the result before storing it.",
+                    "",
+                ]
+            )
+            self._prog_var.set(
+                f"Verification failed: {outcome.result.num_groups} groups"
+            )
+            self._show_custom_dialog(
+                "Verification Failed",
+                "Verification failed.\n\nSome targets are not properly covered.",
+                "error",
+            )
+
+        self._result_text.delete("1.0", "end")
+        self._result_text.insert("1.0", "\n".join(lines))
+
+        filename = (
+            f"{params['m']}-{params['n']}-{params['k']}-{params['j']}-{params['s']}-"
+            f"{current_run}-{outcome.result.num_groups}"
+        )
+        self._file_lbl.set(f"Verification: {verified_label} | {filename}")
+        self._set_ready_state()
+
+    def _on_verification_error(self, failure: VerificationFailure) -> None:
+        if failure.request_id != self._verification_request_id:
+            return
+        self._verification_in_progress = False
+        self._set_ready_state()
+        self._prog_var.set(failure.message)
+        self._show_custom_dialog("Verification Error", failure.message, "error")
+
     def _on_clear(self) -> None:
         self._result_text.delete("1.0", "end")
         self._prog_var.set("Ready to execute")
         self._prog_bar["value"] = 0
         self._file_lbl.set("")
         self._current_result = None
-        self._store_btn.config(state="disabled")
-        self._verify_btn.config(state="disabled")
-        self._print_btn.config(state="disabled")
+        self._verification_in_progress = False
+        self._set_ready_state()
 
     def _on_cancel(self) -> None:
         self._cancel_flag = True
@@ -1033,9 +1169,19 @@ class CleanModernApp:
         return "Completed normal solve flow"
 
     def _result_masks(self, result: SolverResult):
-        if result.group_masks is not None:
-            return result.group_masks
-        return [elements_to_mask(grp) for grp in result.groups]
+        return _solver_result_masks(result)
+
+    def _set_ready_state(self) -> None:
+        self._exec_btn.config(state="normal")
+        self._cancel_btn.config(state="disabled")
+        has_result = self._current_result is not None
+        result_state = "normal" if has_result and not self._verification_in_progress else "disabled"
+        self._store_btn.config(state=result_state)
+        self._verify_btn.config(state=result_state)
+        self._print_btn.config(state=result_state)
+        self._clear_btn.config(
+            state="disabled" if self._verification_in_progress else "normal"
+        )
 
     # --- Parameter reading ---
 
@@ -1145,6 +1291,10 @@ class CleanModernApp:
                         self._prog_bar["value"] = pct
                 elif isinstance(item, SolverResult):
                     self._on_result(item)
+                elif isinstance(item, VerificationOutcome):
+                    self._on_verification_complete(item)
+                elif isinstance(item, VerificationFailure):
+                    self._on_verification_error(item)
                 elif isinstance(item, str):
                     self._prog_var.set(item)
                     self._exec_btn.config(state="normal")
@@ -1155,11 +1305,8 @@ class CleanModernApp:
 
     def _on_result(self, result: SolverResult) -> None:
         self._current_result = result
-        self._exec_btn.config(state="normal")
-        self._cancel_btn.config(state="disabled")
-        self._store_btn.config(state="normal")
-        self._verify_btn.config(state="normal")
-        self._print_btn.config(state="normal")
+        self._verification_in_progress = False
+        self._set_ready_state()
 
         # Get run number
         p = self._params
@@ -1242,10 +1389,7 @@ class CleanModernApp:
     def _get_run_count(self, m: int, n: int, k: int, j: int, s: int) -> int:
         """Get the number of previous runs with the same parameters."""
         try:
-            all_results = self.db.list_all()
-            count = sum(1 for r in all_results 
-                       if r.m == m and r.n == n and r.k == k and r.j == j and r.s == s)
-            return count
+            return self.db.count_by_params(m, n, k, j, s)
         except Exception:
             return 0
 
@@ -1391,7 +1535,7 @@ class CleanModernApp:
     def _refresh_db_list(self) -> None:
         self._db_list.delete(0, tk.END)
         self._db_ids.clear()
-        for r in self.db.list_all():
+        for r in self.db.list_summaries():
             self._db_list.insert(tk.END, r.filename)
             self._db_ids.append(r.id)
 
