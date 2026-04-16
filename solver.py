@@ -365,6 +365,7 @@ class CoveringDesignSolver:
         j: int,
         s: int,
         *,
+        t: int = 1,
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
         num_attempts: int = 3,
@@ -377,6 +378,7 @@ class CoveringDesignSolver:
         self.k = k
         self.j = j
         self.s = s
+        self.t = t
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
@@ -393,6 +395,11 @@ class CoveringDesignSolver:
             raise ValueError(f"Need s<=j<=k, got s={s} j={j} k={k}")
         if n < k:
             raise ValueError(f"Need n>=k, got n={n} k={k}")
+        
+        # Validate t parameter for t-covering
+        max_t = comb(k, s)  # Maximum possible groups that can cover a j-subset
+        if not 1 <= t <= max_t:
+            raise ValueError(f"t must be 1-{max_t} (C(k={k},s={s})), got {t}")
 
         self._containment = s == j
 
@@ -757,6 +764,17 @@ class CoveringDesignSolver:
         inv_table = self._inv_table
         assert cov_table is not None and inv_table is not None
 
+        if self.t == 1:
+            # Standard 1-covering: use boolean uncovered array
+            return self._greedy_incremental_t1(randomize, cov_table, inv_table)
+        else:
+            # t-covering: use coverage count array
+            return self._greedy_incremental_tcov(randomize, cov_table, inv_table)
+    
+    def _greedy_incremental_t1(
+        self, randomize: bool, cov_table: list[np.ndarray], inv_table: list[np.ndarray]
+    ) -> tuple[list[int], bool, int]:
+        """Original 1-covering greedy algorithm."""
         uncov = np.ones(self.num_targets, dtype=bool)
         scores = np.array([len(c) for c in cov_table], dtype=np.int32)
         selected: list[int] = []
@@ -801,8 +819,92 @@ class CoveringDesignSolver:
                     remaining=rem,
                 )
         return selected, rem == 0, rem
+    
+    def _greedy_incremental_tcov(
+        self, randomize: bool, cov_table: list[np.ndarray], inv_table: list[np.ndarray]
+    ) -> tuple[list[int], bool, int]:
+        """t-covering greedy algorithm: each target needs t covers."""
+        # Track how many times each target has been covered
+        cover_count = np.zeros(self.num_targets, dtype=np.int32)
+        # Track how many times each candidate has been used
+        cand_used_count = np.zeros(self.num_cands, dtype=np.int32)
+        # Score: how many under-covered targets this candidate helps
+        scores = np.zeros(self.num_cands, dtype=np.int32)
+        
+        # Initialize scores: count targets that need more coverage
+        for cand_idx in range(self.num_cands):
+            scores[cand_idx] = len(cov_table[cand_idx])
+        
+        selected: list[int] = []
+        iteration = 0
+        log_interval = max(1, self.num_targets // 500)
+        rem = self.num_targets  # Number of targets not yet covered t times
+
+        while rem > 0:
+            if self._cancel():
+                break
+
+            if randomize:
+                fscores = scores.astype(np.float64)
+                fscores += np.random.random(self.num_cands) * 0.5
+                best_idx = int(fscores.argmax())
+            else:
+                best_idx = int(scores.argmax())
+
+            cnt = int(scores[best_idx])
+            if cnt == 0:
+                # No candidate can help any under-covered target
+                break
+
+            mask = int(self.cand_masks[best_idx])
+            selected.append(mask)
+            cand_used_count[best_idx] += 1
+
+            # Update coverage counts and scores
+            targets_helped = cov_table[best_idx]
+            newly_satisfied = 0
+            
+            # Recalculate score for this candidate based on current coverage
+            new_score = 0
+            for ti in targets_helped:
+                old_count = cover_count[ti]
+                cover_count[ti] += 1
+                
+                # If this target just reached t covers, it's satisfied
+                if old_count < self.t and cover_count[ti] >= self.t:
+                    newly_satisfied += 1
+                    # Update scores: this target no longer needs coverage
+                    for cand_idx in inv_table[ti]:
+                        scores[cand_idx] -= 1
+                elif cover_count[ti] < self.t:
+                    # Target still needs coverage, count it for this candidate's new score
+                    new_score += 1
+            
+            # Update the score for the candidate we just used
+            scores[best_idx] = new_score
+
+            iteration += 1
+            rem -= newly_satisfied
+            if iteration % log_interval == 0 or rem == 0:
+                self._report(
+                    "greedy",
+                    f"Iter {iteration}: +1 (helps {len(targets_helped)}), {rem} left",
+                    iteration=iteration,
+                    sol_size=len(selected),
+                    remaining=rem,
+                )
+        return selected, rem == 0, rem
 
     def _greedy_heuristic(self, randomize: bool) -> tuple[list[int], bool, int]:
+        if self.t == 1:
+            # Standard 1-covering
+            return self._greedy_heuristic_t1(randomize)
+        else:
+            # t-covering
+            return self._greedy_heuristic_tcov(randomize)
+    
+    def _greedy_heuristic_t1(self, randomize: bool) -> tuple[list[int], bool, int]:
+        """Original 1-covering heuristic algorithm."""
         uncov = np.ones(self.num_targets, dtype=bool)
         selected: list[int] = []
         iteration = 0
@@ -826,6 +928,40 @@ class CoveringDesignSolver:
             self._report(
                 "greedy",
                 f"Iter {iteration}: +1 (covers {cnt}), {rem} left",
+                iteration=iteration,
+                sol_size=len(selected),
+                remaining=rem,
+            )
+        return selected, rem == 0, rem
+    
+    def _greedy_heuristic_tcov(self, randomize: bool) -> tuple[list[int], bool, int]:
+        """t-covering heuristic algorithm."""
+        cover_count = np.zeros(self.num_targets, dtype=np.int32)
+        selected: list[int] = []
+        iteration = 0
+        rem = self.num_targets
+
+        while rem > 0:
+            if self._cancel():
+                break
+            
+            # Find under-covered targets (covered < t times)
+            under_covered = cover_count < self.t
+            if not under_covered.any():
+                break
+            
+            mask, cnt = self._heuristic_pick_tcov(cover_count, under_covered, randomize)
+            if cnt == 0:
+                break
+            
+            selected.append(mask)
+            # Update coverage counts
+            newly_satisfied = self._mark_covered_tcov(mask, cover_count)
+            iteration += 1
+            rem -= newly_satisfied
+            self._report(
+                "greedy",
+                f"Iter {iteration}: +1 (helps {cnt}), {rem} left",
                 iteration=iteration,
                 sol_size=len(selected),
                 remaining=rem,
@@ -860,6 +996,47 @@ class CoveringDesignSolver:
 
         best_local, best_count = self._batch_best(top_cands, uncov_t)
         return int(top_cands[best_local]), best_count
+    
+    def _heuristic_pick_tcov(
+        self, cover_count: np.ndarray, under_covered: np.ndarray, randomize: bool,
+    ) -> tuple[int, int]:
+        """Heuristic pick for t-covering: prioritize under-covered targets."""
+        cand_has = self._cand_has_elem
+        target_has = self._target_has_elem
+        assert cand_has is not None and target_has is not None
+
+        # Frequency of elements in under-covered targets
+        freq = target_has[under_covered].sum(axis=0, dtype=np.int64)
+        h = cand_has @ freq
+
+        top_k = self._top_k_for_remaining(int(under_covered.sum()))
+        if top_k < self.num_cands:
+            top_idx = np.argpartition(h, -top_k)[-top_k:]
+        else:
+            top_idx = np.arange(self.num_cands)
+        top_cands = self.cand_masks[top_idx]
+        uncov_t = self.target_masks[under_covered]
+
+        if randomize:
+            raw_counts = self._batch_scores(top_cands, uncov_t)
+            noisy = raw_counts.astype(np.float64)
+            noisy += np.random.random(len(noisy)) * 0.5
+            best_local = int(np.argmax(noisy))
+            return int(top_cands[best_local]), int(raw_counts[best_local])
+
+        best_local, best_count = self._batch_best(top_cands, uncov_t)
+        return int(top_cands[best_local]), best_count
+    
+    def _mark_covered_tcov(self, mask: int, cover_count: np.ndarray) -> int:
+        """Update coverage counts for t-covering. Returns number of newly satisfied targets."""
+        newly_satisfied = 0
+        for ti in range(self.num_targets):
+            if popcount_uint32(np.array([mask & self.target_masks[ti]], dtype=np.uint32))[0] >= self.s:
+                old_count = cover_count[ti]
+                cover_count[ti] += 1
+                if old_count < self.t and cover_count[ti] >= self.t:
+                    newly_satisfied += 1
+        return newly_satisfied
 
     # ------------------------------------------------------------------
     # Batch scoring
@@ -1063,23 +1240,36 @@ class CoveringDesignSolver:
     def _verify(self, masks: list[int]) -> bool:
         if not masks:
             return self.num_targets == 0
-        if (
-            self._gpu_active()
-            and self.num_targets >= 4096
-            and len(masks) * self.num_targets >= 20_000_000
-        ):
-            try:
-                return self._verify_gpu(masks)
-            except Exception:
-                self._gpu_disable("GPU verification failed; falling back to CPU")
-        covered = np.zeros(self.num_targets, dtype=bool)
-        for m in masks:
-            ints = np.uint32(m) & self.target_masks
-            if self._containment:
-                covered |= ints == self.target_masks
-            else:
-                covered |= popcount_uint32(ints) >= self.s
-        return bool(np.all(covered))
+        
+        if self.t == 1:
+            # Standard 1-covering verification
+            if (
+                self._gpu_active()
+                and self.num_targets >= 4096
+                and len(masks) * self.num_targets >= 20_000_000
+            ):
+                try:
+                    return self._verify_gpu(masks)
+                except Exception:
+                    self._gpu_disable("GPU verification failed; falling back to CPU")
+            covered = np.zeros(self.num_targets, dtype=bool)
+            for m in masks:
+                ints = np.uint32(m) & self.target_masks
+                if self._containment:
+                    covered |= ints == self.target_masks
+                else:
+                    covered |= popcount_uint32(ints) >= self.s
+            return bool(np.all(covered))
+        else:
+            # t-covering verification: each target must be covered at least t times
+            cover_count = np.zeros(self.num_targets, dtype=np.int32)
+            for m in masks:
+                ints = np.uint32(m) & self.target_masks
+                if self._containment:
+                    cover_count += (ints == self.target_masks).astype(np.int32)
+                else:
+                    cover_count += (popcount_uint32(ints) >= self.s).astype(np.int32)
+            return bool(np.all(cover_count >= self.t))
 
     def _uncovered_masks(self, masks: list[int]) -> np.ndarray:
         if (

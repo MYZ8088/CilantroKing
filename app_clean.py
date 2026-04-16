@@ -145,10 +145,15 @@ class CleanModernApp:
 
         # Second row
         row2 = tk.Frame(params_content, bg=self.colors['card_bg'])
-        row2.pack(fill="x")
+        row2.pack(fill="x", pady=(0, 10))
         self._j = self._param_entry(row2, "Test Size (j)", "5", "Constraint: s≤j≤k", 0)
         self._s = self._param_entry(row2, "Threshold (s)", "5", "Range: 3-7", 1)
         self._timeout = self._param_entry(row2, "Timeout (sec)", "150", "Max runtime: 30-600s", 2)
+
+        # Third row
+        row3 = tk.Frame(params_content, bg=self.colors['card_bg'])
+        row3.pack(fill="x")
+        self._t = self._param_entry(row3, "Coverage (t)", "1", "Min covers: 1-C(k,s)", 0)
 
         # Sample Selection Card
         sample_card = self._create_card(scroll_frame, "📊 Sample Selection")
@@ -778,7 +783,7 @@ class CleanModernApp:
         from solver import CoveringDesignSolver
         
         temp_solver = CoveringDesignSolver(
-            n=p["n"], k=p["k"], j=p["j"], s=p["s"],
+            n=p["n"], k=p["k"], j=p["j"], s=p["s"], t=p["t"],
             num_attempts=1
         )
         is_verified = temp_solver._verify(self._result_masks(current))
@@ -933,6 +938,7 @@ class CleanModernApp:
         k = _int(self._k, "k")
         j = _int(self._j, "j")
         s = _int(self._s, "s")
+        t = _int(self._t, "t")
         timeout = _int(self._timeout, "timeout")
 
         if not 45 <= m <= 54:
@@ -949,7 +955,14 @@ class CleanModernApp:
             raise ValueError(f"n({n}) cannot exceed m({m})")
         if not 30 <= timeout <= 600:
             raise ValueError("Timeout must be between 30 and 600 seconds")
-        return {"m": m, "n": n, "k": k, "j": j, "s": s, "timeout": timeout}
+        
+        # Validate t parameter
+        from math import comb
+        max_t = comb(k, s)
+        if not 1 <= t <= max_t:
+            raise ValueError(f"t must be between 1 and {max_t} (C(k={k},s={s}))")
+        
+        return {"m": m, "n": n, "k": k, "j": j, "s": s, "t": t, "timeout": timeout}
 
     def _select_samples(self, p: dict[str, int]) -> list[int] | None:
         m, n = p["m"], p["n"]
@@ -1003,7 +1016,7 @@ class CleanModernApp:
         try:
             started_at = self._run_started_at or time.time()
             solver = CoveringDesignSolver(
-                n=p["n"], k=p["k"], j=p["j"], s=p["s"],
+                n=p["n"], k=p["k"], j=p["j"], s=p["s"], t=p["t"],
                 progress_cb=lambda prog: self._q.put(prog),
                 cancel_fn=lambda _t0=started_at: self._should_cancel_solver(_t0),
                 num_attempts=5,
