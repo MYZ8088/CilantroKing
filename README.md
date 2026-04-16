@@ -55,18 +55,14 @@ Find the **smallest** collection of $k$-subsets of the sample pool such that eve
 
 ```
 ai_homework/
-├── main_clean.py                   # Modern UI entry point (recommended)
-├── app_clean.py                    # Modern Tkinter GUI (pure tkinter)
-├── main.py                         # Legacy entry point
-├── app.py                          # Legacy GUI
+├── main.py                         # GUI entry point (recommended)
+├── app_clean.py                    # Main Tkinter GUI (pure tkinter)
 ├── solver.py                       # Core solver (greedy + SA + GPU support)
 ├── bounds.py                       # Theoretical bounds + LJCR dataset
 ├── database.py                     # SQLite result storage with run tracking
 ├── requirements.txt                # Python dependencies
 ├── SOLUTION.md                     # Detailed algorithm documentation (Chinese)
 ├── MANUAL_TEST_REFERENCE.txt       # 186 LJCR test cases with expected results
-├── UI_IMPROVEMENTS.md              # UI development history
-├── MODERN_UI_GUIDE.md              # Modern UI design guide
 └── tests/
     ├── ljcr_dataset.py             # LJCR dataset (186 entries, proven/best-known)
     ├── test_ljcr_dataset.py        # LJCR-based test runner
@@ -100,11 +96,6 @@ pip install cupy-cuda12x  # or appropriate CUDA version
 
 ### Launch the Modern GUI (Recommended)
 
-```bash
-python main_clean.py
-```
-
-Or use the legacy interface:
 ```bash
 python main.py
 ```
@@ -269,6 +260,5 @@ For full algorithmic details, see [SOLUTION.md](SOLUTION.md).
 
 ## Development Notes
 
-- **UI Evolution**: See [UI_IMPROVEMENTS.md](UI_IMPROVEMENTS.md) for the complete UI development history
-- **Modern Design**: See [MODERN_UI_GUIDE.md](MODERN_UI_GUIDE.md) for design principles and implementation details
+- **UI Implementation**: Main GUI is maintained in [app_clean.py](app_clean.py)
 - **Benchmark Testing**: Follow [AGENTS.md](AGENTS.md) workflow for solver improvements
