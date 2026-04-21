@@ -77,6 +77,11 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     cp = None
 
+try:
+    from ortools.sat.python import cp_model  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    cp_model = None
+
 
 _GPU_BATCH_PROBE_OK: bool | None = None
 _GPU_BATCH_PROBE_AT: float | None = None
@@ -752,6 +757,10 @@ class CoveringDesignSolver:
             ):
                 break
 
+        if best is not None:
+            best = self._phase_e_mid_compact_search(best)
+            best = self._phase_f_mid_cp_sat_refine(best)
+
         masks = best or []
         return SolverResult(
             groups=[sorted(mask_to_elements(m)) for m in masks],
@@ -830,6 +839,8 @@ class CoveringDesignSolver:
     def _phase_a_profile_attempts(self, base_attempts: int) -> int:
         if self._is_large_j_equals_k_noncontainment():
             min_profiles = 5
+        elif self._is_mid_j_equals_k_noncontainment():
+            min_profiles = 5
         elif self._interaction_scale <= 30_000_000:
             min_profiles = 3
         else:
@@ -840,6 +851,12 @@ class CoveringDesignSolver:
         if self._deadline_at is not None and self._is_large_j_equals_k_noncontainment():
             max_cap = 20
             return max(profile_attempts, min(max_cap, base_attempts + 18))
+        if self._deadline_at is not None and self._is_mid_j_equals_k_noncontainment():
+            if self.num_targets <= 10_000:
+                max_cap = 12
+                return max(profile_attempts, min(max_cap, base_attempts + 8))
+            max_cap = 5
+            return max(profile_attempts, min(max_cap, base_attempts + 3))
         if self._deadline_at is None:
             if self._interaction_scale <= 2_000_000:
                 extra = 4
@@ -885,6 +902,8 @@ class CoveringDesignSolver:
         ratio = 0.6
         if self._is_large_j_equals_k_noncontainment():
             ratio = 0.35
+        elif self._is_mid_j_equals_k_noncontainment():
+            ratio = 0.45
         return remaining < max(0.15, avg_attempt_sec * ratio)
 
     def _phase_a_can_extend_search(
@@ -902,6 +921,8 @@ class CoveringDesignSolver:
             return False
         if self._is_large_j_equals_k_noncontainment() and avg_attempt_sec is not None:
             return remaining >= max(6.0, avg_attempt_sec * 0.8)
+        if self._is_mid_j_equals_k_noncontainment() and avg_attempt_sec is not None:
+            return remaining >= max(4.0, avg_attempt_sec * 0.75)
         if self._interaction_scale <= 2_000_000:
             retry_window = 3.0
         elif self._interaction_scale <= 30_000_000:
@@ -957,6 +978,13 @@ class CoveringDesignSolver:
             not self._containment
             and self.j == self.k
             and self.num_targets >= 70_000
+        )
+
+    def _is_mid_j_equals_k_noncontainment(self) -> bool:
+        return (
+            not self._containment
+            and self.j == self.k
+            and 8_000 <= self.num_targets < 70_000
         )
 
     def _build_attempt_profiles(self, num_attempts: int) -> list[GreedyStrategy]:
@@ -1061,53 +1089,120 @@ class CoveringDesignSolver:
                 ]
         else:
             spread_tiebreak = self._enable_spread_tiebreak()
-            pool = [
-                GreedyStrategy(
-                    name="coverage-first",
-                    spread_tiebreak=spread_tiebreak,
-                    spread_recent=32,
-                    spread_pool_cap=640,
-                ),
-                GreedyStrategy(
-                    name="rarity-balance",
-                    coverage_weight=1.0,
-                    rarity_weight=0.2,
-                    randomize=True,
-                    noise_scale=0.6,
-                    rcl_fraction=0.03,
-                    rcl_min_count=3,
-                    destroy_repair_rounds=1,
-                ),
-                GreedyStrategy(
-                    name="rarity-first",
-                    coverage_weight=0.85,
-                    rarity_weight=0.45,
-                    randomize=True,
-                    noise_scale=0.75,
-                    rcl_fraction=0.05,
-                    rcl_min_count=3,
-                    destroy_repair_rounds=1,
-                ),
-                GreedyStrategy(
-                    name="repair-driven",
-                    coverage_weight=0.9,
-                    rarity_weight=0.25,
-                    randomize=True,
-                    noise_scale=0.8,
-                    rcl_fraction=0.06,
-                    rcl_min_count=4,
-                    destroy_repair_rounds=2,
-                ),
-                GreedyStrategy(
-                    name="coverage-random",
-                    coverage_weight=1.0,
-                    rarity_weight=0.1,
-                    randomize=True,
-                    noise_scale=0.85,
-                    rcl_fraction=0.07,
-                    rcl_min_count=4,
-                ),
-            ]
+            if self._is_mid_j_equals_k_noncontainment():
+                pool = [
+                    GreedyStrategy(
+                        name="coverage-first",
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=32,
+                        spread_pool_cap=640,
+                        destroy_repair_rounds=2,
+                    ),
+                    GreedyStrategy(
+                        name="coverage-soft-a",
+                        coverage_weight=1.0,
+                        rarity_weight=0.12,
+                        randomize=True,
+                        noise_scale=0.28,
+                        rcl_fraction=0.015,
+                        rcl_min_count=2,
+                        top_k_scale=1.1,
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=28,
+                        spread_pool_cap=640,
+                        destroy_repair_rounds=3,
+                    ),
+                    GreedyStrategy(
+                        name="coverage-soft-c",
+                        coverage_weight=0.98,
+                        rarity_weight=0.2,
+                        randomize=True,
+                        noise_scale=0.55,
+                        rcl_fraction=0.04,
+                        rcl_min_count=3,
+                        top_k_scale=1.2,
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=24,
+                        spread_pool_cap=720,
+                        destroy_repair_rounds=2,
+                    ),
+                    GreedyStrategy(
+                        name="coverage-soft-d",
+                        coverage_weight=0.96,
+                        rarity_weight=0.22,
+                        randomize=True,
+                        noise_scale=0.7,
+                        rcl_fraction=0.05,
+                        rcl_min_count=3,
+                        top_k_scale=1.25,
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=24,
+                        spread_pool_cap=720,
+                        destroy_repair_rounds=3,
+                    ),
+                    GreedyStrategy(
+                        name="coverage-soft-e",
+                        coverage_weight=0.94,
+                        rarity_weight=0.28,
+                        randomize=True,
+                        noise_scale=0.82,
+                        rcl_fraction=0.06,
+                        rcl_min_count=4,
+                        top_k_scale=1.3,
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=20,
+                        spread_pool_cap=768,
+                        destroy_repair_rounds=3,
+                    ),
+                ]
+            else:
+                pool = [
+                    GreedyStrategy(
+                        name="coverage-first",
+                        spread_tiebreak=spread_tiebreak,
+                        spread_recent=32,
+                        spread_pool_cap=640,
+                    ),
+                    GreedyStrategy(
+                        name="rarity-balance",
+                        coverage_weight=1.0,
+                        rarity_weight=0.2,
+                        randomize=True,
+                        noise_scale=0.6,
+                        rcl_fraction=0.03,
+                        rcl_min_count=3,
+                        destroy_repair_rounds=1,
+                    ),
+                    GreedyStrategy(
+                        name="rarity-first",
+                        coverage_weight=0.85,
+                        rarity_weight=0.45,
+                        randomize=True,
+                        noise_scale=0.75,
+                        rcl_fraction=0.05,
+                        rcl_min_count=3,
+                        destroy_repair_rounds=1,
+                    ),
+                    GreedyStrategy(
+                        name="repair-driven",
+                        coverage_weight=0.9,
+                        rarity_weight=0.25,
+                        randomize=True,
+                        noise_scale=0.8,
+                        rcl_fraction=0.06,
+                        rcl_min_count=4,
+                        destroy_repair_rounds=2,
+                    ),
+                    GreedyStrategy(
+                        name="coverage-random",
+                        coverage_weight=1.0,
+                        rarity_weight=0.1,
+                        randomize=True,
+                        noise_scale=0.85,
+                        rcl_fraction=0.07,
+                        rcl_min_count=4,
+                    ),
+                ]
         return pool[:num_attempts]
 
     def _optimise_solution(
@@ -1142,6 +1237,11 @@ class CoveringDesignSolver:
                 rounds=dr_rounds,
             )
             sol = self._local_search(sol)
+            if not _within_opt_budget():
+                return sol
+
+        if heavy_allowed and _within_opt_budget():
+            sol = self._targeted_drop_one(sol, strategy)
             if not _within_opt_budget():
                 return sol
 
@@ -1244,7 +1344,14 @@ class CoveringDesignSolver:
         remaining = self._time_remaining_sec()
         if remaining is None:
             return 0
+        if self._is_large_j_equals_k_noncontainment() and len(sol) > 220:
+            return 0
         if len(sol) > 220:
+            if self._is_mid_j_equals_k_noncontainment():
+                if remaining >= 30.0:
+                    return 2
+                if remaining >= 16.0:
+                    return 1
             return 0
         if remaining >= 25.0:
             return 2
@@ -1260,13 +1367,19 @@ class CoveringDesignSolver:
     ) -> bool:
         remaining = self._time_remaining_sec()
         if best_len is not None and len(sol) > best_len + max(2, best_len // 18):
-            if not self._is_large_j_equals_k_noncontainment():
+            allow_relaxed = (
+                self._is_large_j_equals_k_noncontainment()
+                or self._is_mid_j_equals_k_noncontainment()
+            )
+            if not allow_relaxed:
                 return False
             if remaining is None:
                 if stagnant >= 2:
                     return False
-            elif remaining < 14.0:
-                return False
+            else:
+                min_remaining = 14.0 if self._is_large_j_equals_k_noncontainment() else 12.0
+                if remaining < min_remaining:
+                    return False
         if stagnant <= 1:
             return True
         if remaining is None:
@@ -2008,7 +2121,8 @@ class CoveringDesignSolver:
     def _allow_destroy_repair(self, sol: list[int]) -> bool:
         if len(sol) < 8:
             return False
-        if len(sol) > 260 and not self._is_large_j_equals_k_noncontainment():
+        allow_long = self._is_large_j_equals_k_noncontainment() or self._is_mid_j_equals_k_noncontainment()
+        if len(sol) > 260 and not allow_long:
             return False
         if self.num_cands > 45_000 and not self._is_large_j_equals_k_noncontainment():
             return False
@@ -2017,6 +2131,297 @@ class CoveringDesignSolver:
         if self._interaction_scale <= 900_000_000:
             return self._phase_c_has_time(10.0)
         return self._phase_c_has_time(18.0)
+
+    def _targeted_drop_one(self, sol: list[int], strategy: GreedyStrategy) -> list[int]:
+        if not self._is_mid_j_equals_k_noncontainment():
+            return sol
+        if self._cov_table is None:
+            return sol
+        if len(sol) < 24:
+            return sol
+        if not self._phase_c_has_time(6.0):
+            return sol
+
+        order = self._destroy_repair_order(sol)
+        if not order:
+            return sol
+
+        max_trials = 24 if len(sol) >= 180 else 18
+        if len(order) > max_trials:
+            head = order[: max_trials // 2]
+            tail_pool = order[max_trials // 2 :]
+            extra_need = max_trials - len(head)
+            if extra_need > 0 and len(tail_pool) > extra_need:
+                head.extend(random.sample(tail_pool, extra_need))
+            order = head
+
+        repair_strategy = strategy
+        if not repair_strategy.randomize:
+            repair_strategy = replace(
+                repair_strategy,
+                randomize=True,
+                noise_scale=max(0.45, repair_strategy.noise_scale),
+                rcl_fraction=max(0.04, repair_strategy.rcl_fraction),
+                rcl_min_count=max(3, repair_strategy.rcl_min_count),
+                rarity_weight=max(0.2, repair_strategy.rarity_weight),
+                top_k_scale=max(1.15, repair_strategy.top_k_scale),
+            )
+
+        target_limit = len(sol) - 1
+        for remove_idx in order:
+            if self._cancel():
+                break
+            partial = [m for idx, m in enumerate(sol) if idx != remove_idx]
+            repaired, complete, _ = self._greedy(
+                repair_strategy,
+                partial=partial,
+                best_limit=target_limit,
+            )
+            if not complete:
+                fallback = self._fast_complete_partial_solution(
+                    partial,
+                    best_limit=target_limit,
+                )
+                if fallback is None:
+                    continue
+                repaired = fallback
+            if len(repaired) > target_limit:
+                continue
+            candidate = self._local_search(repaired)
+            if len(candidate) < len(sol):
+                self._report(
+                    "optimize",
+                    f"Targeted drop improved to {len(candidate)} groups",
+                )
+                return candidate
+
+        return sol
+
+    def _phase_e_mid_compact_search(self, sol: list[int]) -> list[int]:
+        if not self._is_mid_j_equals_k_noncontainment():
+            return sol
+        if self._cov_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 24:
+            return sol
+        if not self._phase_c_has_time(8.0):
+            return sol
+
+        best = list(sol)
+        best_len = len(best)
+        no_improve = 0
+        max_rounds = 120 if best_len >= 200 else 80
+        rounds = 0
+
+        strategy = GreedyStrategy(
+            name="mid-compact",
+            coverage_weight=0.95,
+            rarity_weight=0.42,
+            randomize=True,
+            noise_scale=0.95,
+            rcl_fraction=0.08,
+            rcl_min_count=5,
+            top_k_scale=1.65,
+        )
+
+        while rounds < max_rounds and not self._cancel():
+            remaining = self._time_remaining_sec()
+            if remaining is not None and remaining < 1.2:
+                break
+            if no_improve >= 18 and remaining is not None and remaining < 10.0:
+                break
+
+            order = self._destroy_repair_order(best)
+            if not order:
+                break
+
+            if best_len >= 220:
+                remove_count = random.randint(7, 14)
+            elif best_len >= 90:
+                remove_count = random.randint(4, 9)
+            else:
+                remove_count = random.randint(3, 6)
+            remove_count = min(remove_count, max(2, best_len - 2))
+
+            remove_set = self._destroy_repair_remove_set(
+                order,
+                remove_count,
+                len(best),
+                mixed=True,
+            )
+            partial = [
+                mask for idx, mask in enumerate(best)
+                if idx not in remove_set
+            ]
+
+            target_limit = best_len - 1
+            repaired, complete, _ = self._greedy(
+                strategy,
+                partial=partial,
+                best_limit=target_limit,
+            )
+            if not complete:
+                rounds += 1
+                no_improve += 1
+                continue
+            if len(repaired) > target_limit:
+                rounds += 1
+                no_improve += 1
+                continue
+
+            candidate = self._local_search(repaired)
+            rounds += 1
+            if len(candidate) < best_len:
+                best = candidate
+                best_len = len(candidate)
+                no_improve = 0
+                self._report(
+                    "optimize",
+                    f"Phase-E compact improved to {best_len} groups",
+                )
+            else:
+                no_improve += 1
+
+        return best
+
+    def _phase_f_mid_cp_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if not self._is_mid_j_equals_k_noncontainment():
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 16:
+            return sol
+
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 4.0:
+            return sol
+
+        if self.num_targets > 10_000:
+            return self._phase_f_mid_cp_sat_neighborhood(sol)
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        upper_bound = best_len - 1
+
+        while upper_bound >= 1:
+            remaining = self._time_remaining_sec()
+            if remaining is None or remaining < 2.0:
+                break
+
+            model = cp_model.CpModel()
+            vars_x = [model.NewBoolVar(f"x_{i}") for i in range(self.num_cands)]
+            model.Add(sum(vars_x) <= upper_bound)
+            for covering in self._inv_table:
+                model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+
+            for idx in selected_indices:
+                model.AddHint(vars_x[idx], 1)
+
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = float(min(20.0, max(1.5, remaining - 0.8)))
+            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            solver.parameters.random_seed = 1
+            status = solver.Solve(model)
+
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                break
+
+            picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+            if len(picked) >= best_len:
+                break
+
+            candidate = [int(self.cand_masks[i]) for i in picked]
+            if not self._verify(candidate):
+                break
+
+            best_masks = candidate
+            best_len = len(best_masks)
+            selected_indices = picked
+            upper_bound = best_len - 1
+            self._report(
+                "optimize",
+                f"CP-SAT refined to {best_len} groups",
+            )
+
+        return best_masks
+
+    def _phase_f_mid_cp_sat_neighborhood(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._base_weighted_scores is None:
+            return sol
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 8.0:
+            return sol
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        target_ub = best_len - 1
+        if target_ub < 1:
+            return sol
+
+        extras_cap = 2_400 if remaining >= 18.0 else 1_200
+        selected_set = set(selected_indices)
+        ranked = np.argsort(self._base_weighted_scores)[::-1]
+        neighborhood = list(selected_indices)
+        for ci in ranked:
+            cii = int(ci)
+            if cii in selected_set:
+                continue
+            neighborhood.append(cii)
+            if len(neighborhood) >= len(selected_indices) + extras_cap:
+                break
+
+        local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
+        model = cp_model.CpModel()
+        vars_x = [model.NewBoolVar(f"x_{i}") for i in range(len(neighborhood))]
+        model.Add(sum(vars_x) <= target_ub)
+        for covering in self._inv_table:
+            loc = [local_pos[int(ci)] for ci in covering if int(ci) in local_pos]
+            if not loc:
+                continue
+            model.AddBoolOr([vars_x[i] for i in loc])
+        for ci in selected_indices:
+            model.AddHint(vars_x[local_pos[ci]], 1)
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = float(min(18.0, max(3.0, remaining - 2.0)))
+        solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+        solver.parameters.random_seed = 1
+        status = solver.Solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return sol
+
+        picked_local = [i for i in range(len(neighborhood)) if solver.Value(vars_x[i]) == 1]
+        if len(picked_local) >= best_len:
+            return sol
+        picked_global = [neighborhood[i] for i in picked_local]
+        candidate = [int(self.cand_masks[i]) for i in picked_global]
+        if not self._verify(candidate):
+            return sol
+        self._report(
+            "optimize",
+            f"CP-SAT neighborhood refined to {len(candidate)} groups",
+        )
+        return candidate
 
     def _destroy_repair_order(self, sol: list[int]) -> list[int]:
         cov_count = np.zeros(self.num_targets, dtype=np.int32)
@@ -2043,6 +2448,22 @@ class CoveringDesignSolver:
             base = max(6, current_len // 16)
             lo = max(6, base - 3)
             hi = min(22, base + 3)
+            if hi <= lo:
+                return lo
+            return random.randint(lo, hi)
+        if self._is_mid_j_equals_k_noncontainment():
+            if current_len >= 220:
+                base = max(5, current_len // 34)
+                lo = max(4, base - 2)
+                hi = min(14, base + 2)
+            elif current_len >= 80:
+                base = max(4, current_len // 18)
+                lo = max(3, base - 1)
+                hi = min(10, base + 2)
+            else:
+                base = max(3, current_len // 16)
+                lo = max(2, base - 1)
+                hi = min(8, base + 1)
             if hi <= lo:
                 return lo
             return random.randint(lo, hi)
