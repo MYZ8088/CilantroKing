@@ -1130,6 +1130,7 @@ class CleanModernApp:
                 progress_cb=lambda prog: self._q.put(prog),
                 cancel_fn=lambda _t0=started_at: self._should_cancel_solver(_t0),
                 num_attempts=5,
+                time_budget_sec=self._time_budget_sec,
                 skip_final_verify=True,  # Skip verification for faster GUI response
             )
             result = solver.solve()

@@ -21,7 +21,7 @@ import site
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 from math import comb
 from pathlib import Path
@@ -341,6 +341,12 @@ class GreedyStrategy:
     coverage_weight: float = 1.0
     rarity_weight: float = 0.0
     randomize: bool = False
+    noise_scale: float = 0.35
+    rcl_fraction: float = 0.0
+    rcl_min_count: int = 1
+    spread_tiebreak: bool = False
+    spread_recent: int = 24
+    spread_pool_cap: int = 512
     top_k_scale: float = 1.0
     destroy_repair_rounds: int = 0
 
@@ -378,6 +384,7 @@ class CoveringDesignSolver:
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
         num_attempts: int = 3,
+        time_budget_sec: float | None = None,
         skip_final_verify: bool = False,
     ) -> None:
         # Start timing from initialization to include preprocessing
@@ -390,6 +397,12 @@ class CoveringDesignSolver:
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
+        self._time_budget_sec = (
+            float(time_budget_sec) if time_budget_sec is not None and time_budget_sec > 0 else None
+        )
+        self._deadline_at = (
+            self._t0 + self._time_budget_sec if self._time_budget_sec is not None else None
+        )
         self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
 
@@ -629,7 +642,14 @@ class CoveringDesignSolver:
             return self._solve_identity_cover()
 
         best: list[int] | None = None
+        base_attempts = self._effective_attempts()
+        profile_attempts = self._phase_a_profile_attempts(base_attempts)
+        hard_cap = self._phase_a_hard_attempt_cap(base_attempts, profile_attempts)
+        profiles = self._build_attempt_profiles(profile_attempts)
+
+        attempt = 0
         stagnant = 0
+        avg_attempt_sec: float | None = None
 
         if self._gpu_enabled:
             self._report("gpu", "GPU batch scoring enabled")
@@ -641,60 +661,94 @@ class CoveringDesignSolver:
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
 
-        profiles = self._build_attempt_profiles(self._effective_attempts())
-
-        for attempt, profile in enumerate(profiles, start=1):
+        large_seed_intensify = self._is_large_j_equals_k_noncontainment()
+        while attempt < hard_cap:
             if self._cancel():
                 break
-            self._report(
-                "greedy",
-                f"Attempt {attempt}/{len(profiles)}: {profile.name}...",
-            )
-            sol, complete, remaining = self._greedy(profile)
-            if complete and (best is None or len(sol) < len(best)):
-                best = sol
-                self._note_legal_solution()
-
-            if self._cancel():
-                if sol and not complete and self._should_repair_partial(remaining, best):
-                    repaired = self._fast_complete_partial_solution(
-                        sol,
-                        best_limit=len(best) if best is not None else None,
-                    )
-                    if repaired and (best is None or len(repaired) < len(best)):
-                        best = repaired
-                        self._note_legal_solution()
-                break
-            if not complete:
-                if sol and self._should_repair_partial(remaining, best):
-                    repaired = self._fast_complete_partial_solution(
-                        sol,
-                        best_limit=len(best) if best is not None else None,
-                    )
-                    if repaired and (best is None or len(repaired) < len(best)):
-                        best = repaired
-                        self._note_legal_solution()
+            if self._phase_a_should_stop_for_budget(avg_attempt_sec):
                 break
 
-            self._report(
-                "optimize",
-                f"Attempt {attempt}: optimise {profile.name} ({len(sol)} groups)...",
+            attempt_idx = attempt + 1
+            base_profile = profiles[attempt % len(profiles)]
+            profile = self._phase_b_strategy_variant(base_profile, attempt_idx)
+            attempt_started_at = time.time()
+            seed_mode = large_seed_intensify and best is not None
+            if seed_mode:
+                sol = list(best)
+                complete = True
+                remaining = 0
+                self._report(
+                    "optimize",
+                    (
+                        f"Attempt {attempt_idx}/{hard_cap}: intensify {profile.name} "
+                        f"from {len(sol)} groups..."
+                    ),
+                )
+            else:
+                self._report(
+                    "greedy",
+                    f"Attempt {attempt_idx}/{hard_cap}: {profile.name}...",
+                )
+                sol, complete, remaining = self._greedy(profile)
+                if complete and (best is None or len(sol) < len(best)):
+                    best = sol
+                    self._note_legal_solution()
+
+                if self._cancel():
+                    if sol and not complete and self._should_repair_partial(remaining, best):
+                        repaired = self._fast_complete_partial_solution(
+                            sol,
+                            best_limit=len(best) if best is not None else None,
+                        )
+                        if repaired and (best is None or len(repaired) < len(best)):
+                            best = repaired
+                            self._note_legal_solution()
+                    break
+                if not complete:
+                    if sol and self._should_repair_partial(remaining, best):
+                        repaired = self._fast_complete_partial_solution(
+                            sol,
+                            best_limit=len(best) if best is not None else None,
+                        )
+                        if repaired and (best is None or len(repaired) < len(best)):
+                            best = repaired
+                            self._note_legal_solution()
+                    break
+
+                self._report(
+                    "optimize",
+                    f"Attempt {attempt_idx}: optimise {profile.name} ({len(sol)} groups)...",
+                )
+            sol = self._optimise_solution(
+                sol,
+                profile,
+                best_len=len(best) if best is not None else None,
+                stagnant=stagnant,
             )
-            sol = self._optimise_solution(sol, profile)
 
             improved = best is None or len(sol) < len(best)
             if improved:
                 best = sol
                 stagnant = 0
                 self._note_legal_solution()
-                self._report("optimize", f"Best so far: {len(best)} groups (attempt {attempt})")
+                self._report(
+                    "optimize",
+                    f"Best so far: {len(best)} groups (attempt {attempt_idx})",
+                )
             else:
                 stagnant += 1
 
+            attempt_elapsed = max(0.0, time.time() - attempt_started_at)
+            if avg_attempt_sec is None:
+                avg_attempt_sec = attempt_elapsed
+            else:
+                avg_attempt_sec = (avg_attempt_sec * 0.7) + (attempt_elapsed * 0.3)
+
+            attempt += 1
             if (
-                attempt >= 2
-                and stagnant >= 1
-                and (self._interaction_scale >= 20_000_000 or self.num_targets >= 2_000)
+                attempt >= base_attempts
+                and stagnant >= self._phase_a_stagnation_limit()
+                and not self._phase_a_can_extend_search(avg_attempt_sec, attempt, hard_cap)
             ):
                 break
 
@@ -773,50 +827,255 @@ class CoveringDesignSolver:
             return min(num_att, 3)
         return num_att
 
+    def _phase_a_profile_attempts(self, base_attempts: int) -> int:
+        if self._is_large_j_equals_k_noncontainment():
+            min_profiles = 5
+        elif self._interaction_scale <= 30_000_000:
+            min_profiles = 3
+        else:
+            min_profiles = 2
+        return min(5, max(base_attempts, min_profiles))
+
+    def _phase_a_hard_attempt_cap(self, base_attempts: int, profile_attempts: int) -> int:
+        if self._deadline_at is not None and self._is_large_j_equals_k_noncontainment():
+            max_cap = 20
+            return max(profile_attempts, min(max_cap, base_attempts + 18))
+        if self._deadline_at is None:
+            if self._interaction_scale <= 2_000_000:
+                extra = 4
+            elif self._interaction_scale <= 30_000_000:
+                extra = 3
+            elif self._interaction_scale <= 200_000_000:
+                extra = 2
+            else:
+                extra = 1
+        else:
+            if self._interaction_scale <= 2_000_000:
+                extra = 6
+            elif self._interaction_scale <= 30_000_000:
+                extra = 6
+            elif self._interaction_scale <= 200_000_000:
+                extra = 4
+            else:
+                extra = 3
+        return max(profile_attempts, base_attempts + extra)
+
+    def _phase_a_stagnation_limit(self) -> int:
+        if self._interaction_scale <= 2_000_000:
+            return 2
+        if self._interaction_scale <= 30_000_000:
+            return 3
+        if self._interaction_scale <= 200_000_000:
+            return 3
+        return 2
+
+    def _time_remaining_sec(self) -> float | None:
+        if self._deadline_at is None:
+            return None
+        return max(0.0, self._deadline_at - time.time())
+
+    def _phase_a_should_stop_for_budget(self, avg_attempt_sec: float | None) -> bool:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return False
+        if remaining <= 0.15:
+            return True
+        if avg_attempt_sec is None:
+            return False
+        ratio = 0.6
+        if self._is_large_j_equals_k_noncontainment():
+            ratio = 0.35
+        return remaining < max(0.15, avg_attempt_sec * ratio)
+
+    def _phase_a_can_extend_search(
+        self,
+        avg_attempt_sec: float | None,
+        attempt: int,
+        hard_cap: int,
+    ) -> bool:
+        if attempt >= hard_cap:
+            return False
+        if self._interaction_scale <= 2_000_000:
+            return False
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return False
+        if self._is_large_j_equals_k_noncontainment() and avg_attempt_sec is not None:
+            return remaining >= max(6.0, avg_attempt_sec * 0.8)
+        if self._interaction_scale <= 2_000_000:
+            retry_window = 3.0
+        elif self._interaction_scale <= 30_000_000:
+            retry_window = 6.0
+        elif self._interaction_scale <= 200_000_000:
+            retry_window = 8.0
+        else:
+            retry_window = 10.0
+        if remaining <= retry_window:
+            return False
+        if avg_attempt_sec is not None and remaining < max(1.0, avg_attempt_sec * 1.25):
+            return False
+        return True
+
+    def _phase_b_strategy_variant(
+        self,
+        strategy: GreedyStrategy,
+        attempt_idx: int,
+    ) -> GreedyStrategy:
+        if attempt_idx <= 1:
+            return strategy
+        if not strategy.randomize:
+            return strategy
+
+        weight_jitter = 1.0 + ((random.random() - 0.5) * 0.24)
+        rarity_jitter = 1.0 + ((random.random() - 0.5) * 0.4)
+        topk_jitter = 1.0 + ((random.random() - 0.5) * 0.2)
+
+        varied = replace(
+            strategy,
+            coverage_weight=max(0.65, strategy.coverage_weight * weight_jitter),
+            rarity_weight=max(0.0, strategy.rarity_weight * rarity_jitter),
+            top_k_scale=max(0.85, min(2.2, strategy.top_k_scale * topk_jitter)),
+            noise_scale=max(0.25, strategy.noise_scale * (1.0 + random.random() * 0.6)),
+            rcl_fraction=max(
+                strategy.rcl_fraction,
+                min(0.18, strategy.rcl_fraction * (1.0 + random.random() * 0.8)),
+            ),
+            rcl_min_count=max(2, strategy.rcl_min_count),
+        )
+        return varied
+
+    def _enable_spread_tiebreak(self) -> bool:
+        return (
+            self._cov_table is not None
+            and self.j == self.k
+            and not self._containment
+            and self.num_targets >= 12_000
+        )
+
+    def _is_large_j_equals_k_noncontainment(self) -> bool:
+        return (
+            not self._containment
+            and self.j == self.k
+            and self.num_targets >= 70_000
+        )
+
     def _build_attempt_profiles(self, num_attempts: int) -> list[GreedyStrategy]:
         if self._cov_table is None:
-            pool = [
-                GreedyStrategy(name="coverage-topk"),
-                GreedyStrategy(
-                    name="weighted-topk",
-                    coverage_weight=1.0,
-                    rarity_weight=0.55,
-                    randomize=True,
-                    top_k_scale=1.25,
-                ),
-                GreedyStrategy(
-                    name="rarity-balance",
-                    coverage_weight=0.9,
-                    rarity_weight=0.45,
-                    randomize=True,
-                    top_k_scale=1.35,
-                    destroy_repair_rounds=1,
-                ),
-                GreedyStrategy(
-                    name="repair-driven",
-                    coverage_weight=0.85,
-                    rarity_weight=0.55,
-                    randomize=True,
-                    top_k_scale=1.2,
-                    destroy_repair_rounds=2,
-                ),
-                GreedyStrategy(
-                    name="explore-topk",
-                    coverage_weight=0.95,
-                    rarity_weight=0.35,
-                    randomize=True,
-                    top_k_scale=1.5,
-                    destroy_repair_rounds=1,
-                ),
-            ]
+            if self._is_large_j_equals_k_noncontainment():
+                pool = [
+                    GreedyStrategy(
+                        name="coverage-topk",
+                        destroy_repair_rounds=10,
+                    ),
+                    GreedyStrategy(
+                        name="lns-heavy-a",
+                        coverage_weight=0.86,
+                        rarity_weight=0.68,
+                        randomize=True,
+                        noise_scale=1.0,
+                        rcl_fraction=0.056,
+                        rcl_min_count=6,
+                        top_k_scale=2.1,
+                        destroy_repair_rounds=18,
+                    ),
+                    GreedyStrategy(
+                        name="lns-heavy-b",
+                        coverage_weight=0.9,
+                        rarity_weight=0.5,
+                        randomize=True,
+                        noise_scale=0.9,
+                        rcl_fraction=0.1,
+                        rcl_min_count=5,
+                        top_k_scale=2.0,
+                        destroy_repair_rounds=14,
+                    ),
+                    GreedyStrategy(
+                        name="weighted-topk",
+                        coverage_weight=1.0,
+                        rarity_weight=0.55,
+                        randomize=True,
+                        noise_scale=0.65,
+                        rcl_fraction=0.03,
+                        rcl_min_count=3,
+                        top_k_scale=1.25,
+                        destroy_repair_rounds=6,
+                    ),
+                    GreedyStrategy(
+                        name="explore-topk",
+                        coverage_weight=0.95,
+                        rarity_weight=0.35,
+                        randomize=True,
+                        noise_scale=0.9,
+                        rcl_fraction=0.08,
+                        rcl_min_count=5,
+                        top_k_scale=1.5,
+                        destroy_repair_rounds=8,
+                    ),
+                ]
+            else:
+                pool = [
+                    GreedyStrategy(name="coverage-topk"),
+                    GreedyStrategy(
+                        name="weighted-topk",
+                        coverage_weight=1.0,
+                        rarity_weight=0.55,
+                        randomize=True,
+                        noise_scale=0.65,
+                        rcl_fraction=0.03,
+                        rcl_min_count=3,
+                        top_k_scale=1.25,
+                    ),
+                    GreedyStrategy(
+                        name="rarity-balance",
+                        coverage_weight=0.9,
+                        rarity_weight=0.45,
+                        randomize=True,
+                        noise_scale=0.75,
+                        rcl_fraction=0.05,
+                        rcl_min_count=4,
+                        top_k_scale=1.35,
+                        destroy_repair_rounds=1,
+                    ),
+                    GreedyStrategy(
+                        name="repair-driven",
+                        coverage_weight=0.85,
+                        rarity_weight=0.55,
+                        randomize=True,
+                        noise_scale=0.8,
+                        rcl_fraction=0.06,
+                        rcl_min_count=4,
+                        top_k_scale=1.2,
+                        destroy_repair_rounds=2,
+                    ),
+                    GreedyStrategy(
+                        name="explore-topk",
+                        coverage_weight=0.95,
+                        rarity_weight=0.35,
+                        randomize=True,
+                        noise_scale=0.9,
+                        rcl_fraction=0.08,
+                        rcl_min_count=5,
+                        top_k_scale=1.5,
+                        destroy_repair_rounds=1,
+                    ),
+                ]
         else:
+            spread_tiebreak = self._enable_spread_tiebreak()
             pool = [
-                GreedyStrategy(name="coverage-first"),
+                GreedyStrategy(
+                    name="coverage-first",
+                    spread_tiebreak=spread_tiebreak,
+                    spread_recent=32,
+                    spread_pool_cap=640,
+                ),
                 GreedyStrategy(
                     name="rarity-balance",
                     coverage_weight=1.0,
                     rarity_weight=0.2,
                     randomize=True,
+                    noise_scale=0.6,
+                    rcl_fraction=0.03,
+                    rcl_min_count=3,
                     destroy_repair_rounds=1,
                 ),
                 GreedyStrategy(
@@ -824,6 +1083,9 @@ class CoveringDesignSolver:
                     coverage_weight=0.85,
                     rarity_weight=0.45,
                     randomize=True,
+                    noise_scale=0.75,
+                    rcl_fraction=0.05,
+                    rcl_min_count=3,
                     destroy_repair_rounds=1,
                 ),
                 GreedyStrategy(
@@ -831,6 +1093,9 @@ class CoveringDesignSolver:
                     coverage_weight=0.9,
                     rarity_weight=0.25,
                     randomize=True,
+                    noise_scale=0.8,
+                    rcl_fraction=0.06,
+                    rcl_min_count=4,
                     destroy_repair_rounds=2,
                 ),
                 GreedyStrategy(
@@ -838,6 +1103,9 @@ class CoveringDesignSolver:
                     coverage_weight=1.0,
                     rarity_weight=0.1,
                     randomize=True,
+                    noise_scale=0.85,
+                    rcl_fraction=0.07,
+                    rcl_min_count=4,
                 ),
             ]
         return pool[:num_attempts]
@@ -846,22 +1114,44 @@ class CoveringDesignSolver:
         self,
         sol: list[int],
         strategy: GreedyStrategy,
+        *,
+        best_len: int | None = None,
+        stagnant: int = 0,
     ) -> list[int]:
-        sol = self._local_search(sol)
+        started_at = time.time()
+        opt_budget = self._phase_c_opt_budget(sol)
 
-        if not self._cancel() and strategy.destroy_repair_rounds > 0:
+        def _within_opt_budget() -> bool:
+            if self._cancel():
+                return False
+            if opt_budget is None:
+                return True
+            return (time.time() - started_at) < opt_budget
+
+        sol = self._local_search(sol)
+        if not _within_opt_budget():
+            return sol
+
+        heavy_allowed = self._phase_d_allow_heavy_operators(sol, best_len, stagnant)
+
+        dr_rounds = strategy.destroy_repair_rounds + self._phase_c_extra_destroy_rounds(sol)
+        if heavy_allowed and _within_opt_budget() and dr_rounds > 0:
             sol = self._destroy_repair(
                 sol,
                 strategy,
-                rounds=strategy.destroy_repair_rounds,
+                rounds=dr_rounds,
             )
             sol = self._local_search(sol)
+            if not _within_opt_budget():
+                return sol
 
-        if not self._cancel() and self._allow_swap(sol):
+        if heavy_allowed and _within_opt_budget() and self._allow_swap(sol):
             sol = self._swap_improve(sol)
             sol = self._local_search(sol)
+            if not _within_opt_budget():
+                return sol
 
-        if not self._cancel() and 3 < len(sol) <= 200:
+        if heavy_allowed and _within_opt_budget() and 3 < len(sol) <= self._phase_c_sa_size_limit():
             sa_budget = self._sa_time_budget(sol)
             if sa_budget > 0:
                 sol = self._sa_improve(sol, max_time=sa_budget)
@@ -870,28 +1160,120 @@ class CoveringDesignSolver:
         return sol
 
     def _allow_swap(self, sol: list[int]) -> bool:
-        if len(sol) > 60:
+        if len(sol) > 100:
             return False
-        if self.num_cands > 12_000:
+        if self.num_cands > 45_000:
             return False
-        if self.num_targets > 3_000:
+        if self.num_targets > 15_000:
             return False
-        return self._interaction_scale <= 120_000_000
+        if self._interaction_scale <= 450_000_000:
+            return True
+        return self._phase_c_has_time(12.0)
+
+    def _phase_c_has_time(self, minimum_sec: float) -> bool:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return self._interaction_scale <= 180_000_000
+        return remaining >= minimum_sec
+
+    def _phase_c_sa_size_limit(self) -> int:
+        if self._containment and self.num_targets >= 700:
+            return 120
+        if self._interaction_scale >= 600_000_000:
+            return 110
+        if self._interaction_scale >= 180_000_000:
+            return 140
+        return 200
 
     def _sa_time_budget(self, sol: list[int]) -> float:
         if len(sol) <= 3:
             return 0.0
-        if len(sol) > 120:
+        if len(sol) > self._phase_c_sa_size_limit():
             return 0.0
         if self._interaction_scale >= 900_000_000:
-            return 1.5
-        if self._interaction_scale >= 300_000_000 or self.num_cands >= 30_000:
-            return 2.0
-        if self.num_targets >= 3_000:
-            return 3.0
-        if self._interaction_scale >= 120_000_000:
-            return 4.0
-        return 8.0
+            base = 1.5
+        elif self._interaction_scale >= 300_000_000 or self.num_cands >= 30_000:
+            base = 2.0
+        elif self.num_targets >= 3_000:
+            base = 3.0
+        elif self._interaction_scale >= 120_000_000:
+            base = 4.0
+        else:
+            base = 8.0
+
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return base
+        if remaining <= 1.0:
+            return 0.0
+
+        if self._interaction_scale <= 30_000_000:
+            cap = 10.0
+            ratio = 0.18
+        elif self._interaction_scale <= 200_000_000:
+            cap = 14.0
+            ratio = 0.24
+        else:
+            cap = 12.0
+            ratio = 0.20
+        adaptive = min(cap, remaining * ratio)
+        return max(0.0, min(cap, max(base, adaptive)))
+
+    def _phase_c_opt_budget(self, sol: list[int]) -> float | None:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return None
+        if remaining <= 0.6:
+            return 0.0
+        if self._is_large_j_equals_k_noncontainment() and len(sol) >= 180:
+            ratio = 0.45
+            cap = 24.0
+            return max(0.5, min(cap, remaining * ratio))
+        if len(sol) <= 24:
+            ratio = 0.14
+            cap = 3.0
+        elif len(sol) <= 120:
+            ratio = 0.24
+            cap = 8.0
+        else:
+            ratio = 0.30
+            cap = 12.0
+        return max(0.2, min(cap, remaining * ratio))
+
+    def _phase_c_extra_destroy_rounds(self, sol: list[int]) -> int:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return 0
+        if len(sol) > 220:
+            return 0
+        if remaining >= 25.0:
+            return 2
+        if remaining >= 12.0:
+            return 1
+        return 0
+
+    def _phase_d_allow_heavy_operators(
+        self,
+        sol: list[int],
+        best_len: int | None,
+        stagnant: int,
+    ) -> bool:
+        remaining = self._time_remaining_sec()
+        if best_len is not None and len(sol) > best_len + max(2, best_len // 18):
+            if not self._is_large_j_equals_k_noncontainment():
+                return False
+            if remaining is None:
+                if stagnant >= 2:
+                    return False
+            elif remaining < 14.0:
+                return False
+        if stagnant <= 1:
+            return True
+        if remaining is None:
+            return stagnant <= 2 and len(sol) <= 80
+        if remaining < 8.0 and stagnant >= 2:
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Greedy dispatch
@@ -948,22 +1330,157 @@ class CoveringDesignSolver:
             + rarity_scores * strategy.rarity_weight
         )
         if strategy.randomize:
-            combined += np.random.random(len(combined)) * 0.35
+            combined += np.random.random(len(combined)) * strategy.noise_scale
         return combined
+
+    @staticmethod
+    def _weighted_random_index(indices: np.ndarray, scores: np.ndarray) -> int:
+        if len(indices) == 1:
+            return int(indices[0])
+        local_scores = scores[indices]
+        min_val = float(np.min(local_scores))
+        weights = (local_scores - min_val) + 1e-6
+        weight_sum = float(np.sum(weights))
+        if weight_sum <= 0:
+            return int(indices[random.randrange(len(indices))])
+        probs = weights / weight_sum
+        picked = int(np.random.choice(len(indices), p=probs))
+        return int(indices[picked])
+
+    def _rcl_count(self, strategy: GreedyStrategy, available_count: int, remaining: int) -> int:
+        if strategy.rcl_fraction <= 0 or available_count <= 1:
+            return 1
+        if remaining <= 200:
+            rcl_cap = 96
+        elif remaining <= 1_000:
+            rcl_cap = 128
+        elif remaining <= 5_000:
+            rcl_cap = 160
+        else:
+            rcl_cap = 224
+        raw_count = int(math.ceil(available_count * strategy.rcl_fraction))
+        rcl_count = max(strategy.rcl_min_count, raw_count)
+        return max(1, min(available_count, min(rcl_count, rcl_cap)))
+
+    @staticmethod
+    def _downsample_indices(indices: np.ndarray, cap: int) -> np.ndarray:
+        if len(indices) <= cap:
+            return indices
+        step = len(indices) / float(cap)
+        picked = (np.arange(cap) * step).astype(np.int32)
+        return indices[picked]
+
+    def _select_spread_tiebreak_index(
+        self,
+        candidates: np.ndarray,
+        coverage_scores: np.ndarray,
+        rarity_scores: np.ndarray,
+        strategy: GreedyStrategy,
+        selected: list[int],
+    ) -> int | None:
+        if len(candidates) == 0:
+            return None
+        pool = self._downsample_indices(candidates, max(32, strategy.spread_pool_cap))
+        if len(pool) == 1:
+            return int(pool[0])
+        if not selected:
+            return int(pool[0])
+
+        recent = selected[-max(1, strategy.spread_recent) :]
+        recent_arr = np.asarray(recent, dtype=np.uint32)
+        pool_masks = self.cand_masks[pool]
+        overlaps = popcount_uint32(pool_masks[:, None] & recent_arr[None, :]).sum(axis=1)
+
+        min_overlap = int(np.min(overlaps))
+        best_local = np.flatnonzero(overlaps == min_overlap)
+        if len(best_local) > 1:
+            rare_vals = rarity_scores[pool[best_local]]
+            best_local = best_local[np.flatnonzero(rare_vals == np.max(rare_vals))]
+        if len(best_local) > 1:
+            cov_vals = coverage_scores[pool[best_local]]
+            best_local = best_local[np.flatnonzero(cov_vals == np.max(cov_vals))]
+        return int(pool[int(best_local[0])])
+
+    def _select_incremental_with_spread_tiebreak(
+        self,
+        combined: np.ndarray,
+        coverage_scores: np.ndarray,
+        rarity_scores: np.ndarray,
+        strategy: GreedyStrategy,
+        selected: list[int],
+    ) -> int | None:
+        if not strategy.spread_tiebreak:
+            return None
+        valid = np.flatnonzero(coverage_scores > 0)
+        if len(valid) <= 1:
+            return None
+        max_score = float(np.max(combined[valid]))
+        eps = max(1e-9, abs(max_score) * 1e-12)
+        top = valid[np.abs(combined[valid] - max_score) <= eps]
+        if len(top) <= 1:
+            return None
+        return self._select_spread_tiebreak_index(
+            top,
+            coverage_scores,
+            rarity_scores,
+            strategy,
+            selected,
+        )
+
+    def _select_from_combined_scores(
+        self,
+        combined: np.ndarray,
+        coverage_scores: np.ndarray,
+        strategy: GreedyStrategy,
+        remaining: int,
+    ) -> int:
+        valid = np.flatnonzero(coverage_scores > 0)
+        if len(valid) == 0:
+            return int(np.argmax(combined))
+        if not strategy.randomize or strategy.rcl_fraction <= 0:
+            local_best = int(np.argmax(combined[valid]))
+            return int(valid[local_best])
+
+        rcl_count = self._rcl_count(strategy, len(valid), remaining)
+        if rcl_count <= 1:
+            local_best = int(np.argmax(combined[valid]))
+            return int(valid[local_best])
+        if rcl_count < len(valid):
+            local_scores = combined[valid]
+            top_local = np.argpartition(local_scores, -rcl_count)[-rcl_count:]
+            rcl_idx = valid[top_local]
+        else:
+            rcl_idx = valid
+        return self._weighted_random_index(rcl_idx, combined)
 
     def _select_incremental_index(
         self,
         coverage_scores: np.ndarray,
         rarity_scores: np.ndarray,
         strategy: GreedyStrategy,
+        remaining: int,
+        selected: list[int],
     ) -> int:
         combined = self._combine_candidate_scores(
             coverage_scores,
             rarity_scores,
             strategy,
         )
-        combined[coverage_scores <= 0] = -np.inf
-        return int(np.argmax(combined))
+        spread_pick = self._select_incremental_with_spread_tiebreak(
+            combined,
+            coverage_scores,
+            rarity_scores,
+            strategy,
+            selected,
+        )
+        if spread_pick is not None:
+            return spread_pick
+        return self._select_from_combined_scores(
+            combined,
+            coverage_scores,
+            strategy,
+            remaining,
+        )
 
     def _incremental_scores_from_uncovered(
         self,
@@ -1022,6 +1539,8 @@ class CoveringDesignSolver:
                 coverage_scores,
                 rarity_scores,
                 strategy,
+                rem,
+                selected,
             )
 
             cnt = int(coverage_scores[best_idx])
@@ -1145,7 +1664,12 @@ class CoveringDesignSolver:
             rarity_scores,
             strategy,
         )
-        best_local = int(np.argmax(combined))
+        best_local = self._select_from_combined_scores(
+            combined,
+            raw_counts,
+            strategy,
+            remaining,
+        )
         return int(top_cands[best_local]), int(raw_counts[best_local])
 
     # ------------------------------------------------------------------
@@ -1482,11 +2006,17 @@ class CoveringDesignSolver:
         return popcount_uint32(ints) >= self.s
 
     def _allow_destroy_repair(self, sol: list[int]) -> bool:
-        if len(sol) < 8 or len(sol) > 160:
+        if len(sol) < 8:
             return False
-        if self.num_cands > 12_000:
+        if len(sol) > 260 and not self._is_large_j_equals_k_noncontainment():
             return False
-        return self._interaction_scale <= 180_000_000
+        if self.num_cands > 45_000 and not self._is_large_j_equals_k_noncontainment():
+            return False
+        if self._interaction_scale <= 180_000_000:
+            return True
+        if self._interaction_scale <= 900_000_000:
+            return self._phase_c_has_time(10.0)
+        return self._phase_c_has_time(18.0)
 
     def _destroy_repair_order(self, sol: list[int]) -> list[int]:
         cov_count = np.zeros(self.num_targets, dtype=np.int32)
@@ -1508,6 +2038,39 @@ class CoveringDesignSolver:
         ranked.sort()
         return [idx for _, _, _, idx in ranked]
 
+    def _destroy_repair_count(self, current_len: int) -> int:
+        if self._is_large_j_equals_k_noncontainment() and current_len >= 180:
+            base = max(6, current_len // 16)
+            lo = max(6, base - 3)
+            hi = min(22, base + 3)
+            if hi <= lo:
+                return lo
+            return random.randint(lo, hi)
+        return min(5, max(2, current_len // 15))
+
+    @staticmethod
+    def _destroy_repair_remove_set(
+        order: list[int],
+        remove_count: int,
+        solution_len: int,
+        *,
+        mixed: bool,
+    ) -> set[int]:
+        if not mixed:
+            return set(order[:remove_count])
+
+        seeded = max(1, remove_count // 3)
+        chosen: set[int] = set(order[:seeded])
+        if len(chosen) >= remove_count:
+            return chosen
+        need = remove_count - len(chosen)
+        universe = list(range(solution_len))
+        if len(universe) <= need:
+            chosen.update(universe)
+            return chosen
+        chosen.update(random.sample(universe, need))
+        return chosen
+
     def _destroy_repair(
         self,
         sol: list[int],
@@ -1519,44 +2082,60 @@ class CoveringDesignSolver:
             return sol
 
         best = list(sol)
+        large_mode = self._is_large_j_equals_k_noncontainment() and len(best) >= 180
+        no_improve = 0
+        max_no_improve = 4 if large_mode else 1
         for _ in range(rounds):
             if self._cancel():
                 break
 
-            destroy_count = min(5, max(2, len(best) // 15))
+            destroy_count = self._destroy_repair_count(len(best))
             if len(best) <= destroy_count:
                 break
 
             order = self._destroy_repair_order(best)
-            remove_set = set(order[:destroy_count])
+            mixed_remove = large_mode and (no_improve > 0 or strategy.randomize)
+            remove_set = self._destroy_repair_remove_set(
+                order,
+                destroy_count,
+                len(best),
+                mixed=mixed_remove,
+            )
             partial = [
                 mask for idx, mask in enumerate(best)
                 if idx not in remove_set
             ]
 
+            limit_slack = 8 if large_mode else 0
             repaired, complete, _ = self._greedy(
                 strategy,
                 partial=partial,
-                best_limit=len(best),
+                best_limit=len(best) + limit_slack,
             )
             if not complete:
                 fallback = self._fast_complete_partial_solution(
                     partial,
-                    best_limit=len(best),
+                    best_limit=len(best) + limit_slack,
                 )
                 if fallback is None:
+                    no_improve += 1
+                    if no_improve >= max_no_improve:
+                        break
                     continue
                 repaired = fallback
 
             candidate = self._local_search(repaired)
             if len(candidate) < len(best):
                 best = candidate
+                no_improve = 0
                 self._report(
                     "optimize",
                     f"Destroy-repair improved to {len(best)} groups",
                 )
             else:
-                break
+                no_improve += 1
+                if no_improve >= max_no_improve:
+                    break
 
         return best
 

@@ -94,6 +94,7 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
             j=j,
             s=s,
             num_attempts=num_attempts,
+            time_budget_sec=timeout_sec,
             cancel_fn=lambda t0=started_at, limit=timeout_sec: (time.time() - t0) > limit,
         )
         solved = solver.solve()
