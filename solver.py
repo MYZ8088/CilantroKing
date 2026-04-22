@@ -759,6 +759,7 @@ class CoveringDesignSolver:
 
         if best is not None:
             best = self._phase_e_mid_compact_search(best)
+            best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
 
         masks = best or []
@@ -895,6 +896,8 @@ class CoveringDesignSolver:
         remaining = self._time_remaining_sec()
         if remaining is None:
             return False
+        if self._is_mid_j_equals_k_noncontainment() and self.num_targets > 12_000 and remaining <= 12.0:
+            return True
         if remaining <= 0.15:
             return True
         if avg_attempt_sec is None:
@@ -2200,6 +2203,8 @@ class CoveringDesignSolver:
     def _phase_e_mid_compact_search(self, sol: list[int]) -> list[int]:
         if not self._is_mid_j_equals_k_noncontainment():
             return sol
+        if self.num_targets > 12_000:
+            return sol
         if self._cov_table is None:
             return sol
         if self._deadline_at is None:
@@ -2356,6 +2361,67 @@ class CoveringDesignSolver:
 
         return best_masks
 
+    def _phase_f_small_cp_sat_polish(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) <= 10:
+            return sol
+        if self.num_cands > 1_400 or self.num_targets > 2_000:
+            return sol
+
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 2.0:
+            return sol
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        model = cp_model.CpModel()
+        vars_x = [model.NewBoolVar(f"xs_{i}") for i in range(self.num_cands)]
+        model.Add(sum(vars_x) <= len(sol))
+        for covering in self._inv_table:
+            model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+        model.Minimize(sum(vars_x))
+
+        for idx in selected_indices:
+            model.AddHint(vars_x[idx], 1)
+
+        if self.num_cands <= 320:
+            cap = 6.0
+        elif self.num_cands <= 1_000:
+            cap = 20.0 if self._containment else 14.0
+        else:
+            cap = 18.0
+        max_time = float(min(cap, max(1.0, remaining - 0.8)))
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = max_time
+        solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+        solver.parameters.random_seed = 1
+        status = solver.Solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            return sol
+
+        picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+        if len(picked) >= len(sol):
+            return sol
+
+        candidate = [int(self.cand_masks[i]) for i in picked]
+        if not self._verify(candidate):
+            return sol
+
+        self._report(
+            "optimize",
+            f"CP-SAT small-polish refined to {len(candidate)} groups",
+        )
+        return candidate
+
     def _phase_f_mid_cp_sat_neighborhood(self, sol: list[int]) -> list[int]:
         if cp_model is None:
             return sol
@@ -2378,7 +2444,10 @@ class CoveringDesignSolver:
         if target_ub < 1:
             return sol
 
-        extras_cap = 2_400 if remaining >= 18.0 else 1_200
+        if self.num_targets <= 25_000:
+            extras_cap = 2_400
+        else:
+            extras_cap = 2_000 if remaining >= 18.0 else 1_400
         selected_set = set(selected_indices)
         ranked = np.argsort(self._base_weighted_scores)[::-1]
         neighborhood = list(selected_indices)
@@ -2402,26 +2471,45 @@ class CoveringDesignSolver:
         for ci in selected_indices:
             model.AddHint(vars_x[local_pos[ci]], 1)
 
-        solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = float(min(18.0, max(3.0, remaining - 2.0)))
-        solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
-        solver.parameters.random_seed = 1
-        status = solver.Solve(model)
-        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        rem_after_build = self._time_remaining_sec()
+        if rem_after_build is None or rem_after_build < 3.0:
             return sol
 
-        picked_local = [i for i in range(len(neighborhood)) if solver.Value(vars_x[i]) == 1]
-        if len(picked_local) >= best_len:
-            return sol
-        picked_global = [neighborhood[i] for i in picked_local]
-        candidate = [int(self.cand_masks[i]) for i in picked_global]
-        if not self._verify(candidate):
-            return sol
+        total_budget = float(min(14.0, max(4.0, rem_after_build - 2.0)))
+        seeds = [1, 17] if rem_after_build >= 24.0 else [1]
         self._report(
             "optimize",
-            f"CP-SAT neighborhood refined to {len(candidate)} groups",
+            (
+                f"CP-SAT neighborhood try: vars={len(neighborhood)}, "
+                f"ub={target_ub}, budget={total_budget:.1f}s"
+            ),
         )
-        return candidate
+        per_run = max(3.0, total_budget / len(seeds))
+        for seed in seeds:
+            run_remaining = self._time_remaining_sec()
+            if run_remaining is None or run_remaining < 2.0:
+                break
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = float(min(per_run, max(1.5, run_remaining - 1.0)))
+            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            solver.parameters.random_seed = seed
+            status = solver.Solve(model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                continue
+
+            picked_local = [i for i in range(len(neighborhood)) if solver.Value(vars_x[i]) == 1]
+            if len(picked_local) >= best_len:
+                continue
+            picked_global = [neighborhood[i] for i in picked_local]
+            candidate = [int(self.cand_masks[i]) for i in picked_global]
+            if not self._verify(candidate):
+                continue
+            self._report(
+                "optimize",
+                f"CP-SAT neighborhood refined to {len(candidate)} groups",
+            )
+            return candidate
+        return sol
 
     def _destroy_repair_order(self, sol: list[int]) -> list[int]:
         cov_count = np.zeros(self.num_targets, dtype=np.int32)

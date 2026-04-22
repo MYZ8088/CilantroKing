@@ -1,10 +1,10 @@
 {
   "format_version": 1,
-  "generated_at": "2026-04-21T09:38:20+00:00",
+  "generated_at": "2026-04-22T04:39:35+00:00",
   "benchmark_file": "D:\\class\\ai\\666\\CilantroKing_pr1_restore\\benchmark_cases.json",
   "repo": {
     "git_branch": "yb",
-    "git_commit": "0932402b8d86c521ef18d15adbfc55f7b7d29b51"
+    "git_commit": "50950fde85883a6ed7264ee3d8e70d5803f8f077"
   },
   "environment": {
     "python": "3.14.0",
@@ -13,41 +13,40 @@
     "ck_batch_bytes": null
   },
   "summary": {
-    "suite": "core",
-    "case_count": 10,
-    "verified_count": 10,
+    "suite": "full",
+    "case_count": 13,
+    "verified_count": 13,
     "failed_count": 0,
-    "weighted_quality": 0.827701,
-    "weighted_quality_ratio_verified_only": 1.343771,
-    "total_elapsed_sec": 31.507656,
-    "total_timeout_budget_sec": 320.0,
-    "score": 7961.931871,
+    "weighted_quality": 0.746511,
+    "weighted_quality_ratio_verified_only": 1.659674,
+    "total_elapsed_sec": 238.680358,
+    "total_timeout_budget_sec": 610.0,
+    "score": 5078.305295,
     "reference_breakdown": {
       "exact": 4,
-      "ljcr": 4,
-      "lower_bound": 2
+      "ljcr": 5,
+      "lower_bound": 4
     }
   },
   "comparison_to_baseline": {
     "baseline_path": "D:\\class\\ai\\666\\CilantroKing_pr1_restore\\results\\baseline.json",
     "baseline_suite": "full",
-    "overlap_case_count": 10,
-    "delta_score_on_overlap": -72.440082,
-    "delta_weighted_quality_on_overlap": 0.007544,
-    "delta_total_elapsed_sec_on_overlap": 14.788067,
+    "overlap_case_count": 13,
+    "delta_score_on_overlap": -1533.78333,
+    "delta_weighted_quality_on_overlap": 0.034603,
+    "delta_total_elapsed_sec_on_overlap": 187.981758,
     "delta_verified_count_on_overlap": 0,
     "quality_improved_case_ids": [
       "ljcr_10644",
+      "ljcr_12655",
       "k5_8544",
-      "k7_10766"
+      "k7_10766",
+      "nc_12654"
     ],
     "quality_regressed_case_ids": [
       "nc_15664"
     ],
-    "faster_case_ids": [
-      "k7_10766",
-      "nc_12654"
-    ],
+    "faster_case_ids": [],
     "slower_case_ids": [
       "pdf_7655",
       "pdf_8644",
@@ -56,9 +55,14 @@
       "ljcr_10644",
       "ljcr_12655",
       "k5_8544",
-      "nc_15664"
+      "k7_10766",
+      "nc_12654",
+      "nc_15664",
+      "nc_18654",
+      "ljcr_20655",
+      "nc_20664"
     ],
-    "current_run_score": 7961.931871
+    "current_run_score": 5078.305295
   },
   "cases": [
     {
@@ -94,8 +98,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 6,
-        "elapsed_sec": 0.205084,
-        "first_legal_elapsed_sec": 0.001062,
+        "elapsed_sec": 0.208505,
+        "first_legal_elapsed_sec": 0.001104,
         "timed_out": false,
         "ratio_to_reference": 1.0,
         "quality_index": 1.0,
@@ -186,8 +190,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 7,
-        "elapsed_sec": 0.139115,
-        "first_legal_elapsed_sec": 0.001853,
+        "elapsed_sec": 0.173498,
+        "first_legal_elapsed_sec": 0.003335,
         "timed_out": false,
         "ratio_to_reference": 1.0,
         "quality_index": 1.0,
@@ -284,8 +288,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 4,
-        "elapsed_sec": 0.822971,
-        "first_legal_elapsed_sec": 0.000968,
+        "elapsed_sec": 2.052606,
+        "first_legal_elapsed_sec": 0.002494,
         "timed_out": false,
         "ratio_to_reference": 1.0,
         "quality_index": 1.0,
@@ -358,8 +362,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 6,
-        "elapsed_sec": 1.83947,
-        "first_legal_elapsed_sec": 0.172373,
+        "elapsed_sec": 2.074811,
+        "first_legal_elapsed_sec": 0.207386,
         "timed_out": false,
         "ratio_to_reference": 1.0,
         "quality_index": 1.0,
@@ -448,25 +452,105 @@
       "result": {
         "status": "ok",
         "verified": true,
-        "num_groups": 21,
-        "elapsed_sec": 0.979772,
-        "first_legal_elapsed_sec": 0.012473,
+        "num_groups": 20,
+        "elapsed_sec": 7.083712,
+        "first_legal_elapsed_sec": 0.011922,
         "timed_out": false,
-        "ratio_to_reference": 1.05,
-        "quality_index": 0.952381,
+        "ratio_to_reference": 1.0,
+        "quality_index": 1.0,
         "groups_preview": [
           [
             0,
             1,
             2,
+            3,
+            5,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            6,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7
+          ],
+          [
+            0,
+            1,
+            3,
+            4,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            3,
+            6,
+            7,
+            8
+          ],
+          [
+            0,
+            1,
+            4,
             5,
             7,
             9
           ],
           [
             0,
+            2,
             3,
             4,
+            6,
+            8
+          ],
+          [
+            0,
+            2,
+            3,
+            6,
+            7,
+            9
+          ],
+          [
+            0,
+            2,
+            4,
+            5,
+            7,
+            8
+          ],
+          [
+            0,
+            2,
+            5,
+            6,
+            8,
+            9
+          ],
+          [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          [
+            0,
+            3,
+            5,
             7,
             8,
             9
@@ -480,90 +564,18 @@
             6
           ],
           [
-            2,
-            3,
-            6,
-            7,
-            8,
-            9
-          ],
-          [
-            0,
-            1,
-            4,
-            6,
-            7,
-            8
-          ],
-          [
-            0,
-            2,
-            5,
-            6,
-            8,
-            9
-          ],
-          [
-            0,
             1,
             2,
             3,
-            4,
+            5,
+            7,
             9
           ],
           [
             1,
-            4,
-            5,
-            7,
-            8,
-            9
-          ],
-          [
-            0,
-            2,
-            3,
-            5,
-            7,
-            8
-          ],
-          [
-            0,
-            1,
             2,
             4,
             5,
-            8
-          ],
-          [
-            0,
-            1,
-            2,
-            3,
-            6,
-            7
-          ],
-          [
-            2,
-            4,
-            5,
-            6,
-            7,
-            9
-          ],
-          [
-            0,
-            3,
-            4,
-            5,
-            6,
-            9
-          ],
-          [
-            0,
-            1,
-            6,
-            7,
             8,
             9
           ],
@@ -572,51 +584,43 @@
             2,
             4,
             6,
+            7,
+            8
+          ],
+          [
+            1,
+            3,
+            4,
+            6,
+            7,
+            9
+          ],
+          [
+            1,
+            5,
+            6,
+            7,
             8,
             9
           ],
           [
-            1,
+            2,
             3,
-            5,
-            6,
+            4,
             7,
+            8,
             9
           ],
           [
-            0,
-            1,
-            3,
-            5,
-            6,
-            8
-          ],
-          [
             3,
             4,
             5,
             6,
-            7,
-            8
-          ],
-          [
-            0,
-            2,
-            4,
-            5,
-            6,
-            7
-          ],
-          [
-            1,
-            2,
-            3,
-            4,
-            7,
-            8
+            8,
+            9
           ]
         ],
-        "groups_truncated": true
+        "groups_truncated": false
       },
       "error": null
     },
@@ -651,12 +655,12 @@
       "result": {
         "status": "ok",
         "verified": true,
-        "num_groups": 172,
-        "elapsed_sec": 0.204149,
-        "first_legal_elapsed_sec": 0.049147,
+        "num_groups": 132,
+        "elapsed_sec": 12.905705,
+        "first_legal_elapsed_sec": 0.062917,
         "timed_out": false,
-        "ratio_to_reference": 1.30303,
-        "quality_index": 0.767442,
+        "ratio_to_reference": 1.0,
+        "quality_index": 1.0,
         "groups_preview": [
           [
             0,
@@ -664,14 +668,14 @@
             2,
             3,
             4,
-            5
+            8
           ],
           [
             0,
             1,
             2,
             3,
-            6,
+            5,
             7
           ],
           [
@@ -679,143 +683,143 @@
             1,
             2,
             3,
-            8,
-            9
-          ],
-          [
-            0,
-            1,
-            2,
-            3,
-            10,
-            11
-          ],
-          [
-            0,
-            1,
-            2,
-            4,
-            6,
-            8
-          ],
-          [
-            0,
-            1,
-            2,
-            4,
-            7,
-            9
-          ],
-          [
-            0,
-            1,
-            2,
-            5,
-            6,
-            9
-          ],
-          [
-            0,
-            1,
-            2,
-            5,
-            7,
-            8
-          ],
-          [
-            0,
-            1,
-            3,
-            4,
-            6,
-            9
-          ],
-          [
-            0,
-            1,
-            3,
-            4,
-            7,
-            8
-          ],
-          [
-            0,
-            1,
-            3,
-            5,
-            6,
-            8
-          ],
-          [
-            0,
-            1,
-            3,
-            5,
-            7,
-            9
-          ],
-          [
-            0,
-            1,
-            4,
-            5,
-            6,
-            7
-          ],
-          [
-            0,
-            1,
-            4,
-            5,
-            8,
-            9
-          ],
-          [
-            0,
-            1,
-            4,
-            5,
-            10,
-            11
-          ],
-          [
-            0,
-            1,
-            6,
-            7,
-            8,
-            9
-          ],
-          [
-            0,
-            1,
-            6,
-            7,
-            10,
-            11
-          ],
-          [
-            0,
-            1,
-            8,
-            9,
-            10,
-            11
-          ],
-          [
-            0,
-            2,
-            3,
-            4,
             6,
             10
           ],
           [
             0,
+            1,
             2,
+            3,
+            9,
+            11
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            5,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            6,
+            7
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            10,
+            11
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            6,
+            11
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            8,
+            10
+          ],
+          [
+            0,
+            1,
+            2,
+            6,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            7,
+            8,
+            11
+          ],
+          [
+            0,
+            1,
+            2,
+            7,
+            9,
+            10
+          ],
+          [
+            0,
+            1,
+            3,
+            4,
+            5,
+            11
+          ],
+          [
+            0,
+            1,
+            3,
+            4,
+            6,
+            9
+          ],
+          [
+            0,
+            1,
             3,
             4,
             7,
+            10
+          ],
+          [
+            0,
+            1,
+            3,
+            5,
+            6,
+            8
+          ],
+          [
+            0,
+            1,
+            3,
+            5,
+            9,
+            10
+          ],
+          [
+            0,
+            1,
+            3,
+            6,
+            7,
+            11
+          ],
+          [
+            0,
+            1,
+            3,
+            7,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            3,
+            8,
+            10,
             11
           ]
         ],
@@ -855,8 +859,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 20,
-        "elapsed_sec": 0.733667,
-        "first_legal_elapsed_sec": 0.003879,
+        "elapsed_sec": 6.777615,
+        "first_legal_elapsed_sec": 0.004321,
         "timed_out": false,
         "ratio_to_reference": 1.0,
         "quality_index": 1.0,
@@ -1037,47 +1041,38 @@
       "result": {
         "status": "ok",
         "verified": true,
-        "num_groups": 47,
-        "elapsed_sec": 0.997199,
-        "first_legal_elapsed_sec": 0.010399,
+        "num_groups": 45,
+        "elapsed_sec": 7.06708,
+        "first_legal_elapsed_sec": 0.016089,
         "timed_out": false,
-        "ratio_to_reference": 1.044444,
-        "quality_index": 0.957447,
+        "ratio_to_reference": 1.0,
+        "quality_index": 1.0,
         "groups_preview": [
           [
             0,
             1,
-            4,
-            6,
-            7,
-            8,
-            9
-          ],
-          [
-            1,
             2,
             3,
             4,
-            6,
-            7,
-            9
+            5,
+            6
           ],
           [
             0,
+            1,
             2,
             3,
             4,
             5,
-            7,
-            8
+            7
           ],
           [
+            0,
             1,
             2,
             3,
+            4,
             5,
-            6,
-            7,
             8
           ],
           [
@@ -1085,6 +1080,15 @@
             1,
             2,
             3,
+            4,
+            5,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
             5,
             8,
             9
@@ -1093,73 +1097,91 @@
             0,
             1,
             2,
+            3,
+            6,
+            7,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            6,
+            7,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            6,
+            7,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            6,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            7,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7,
+            9
+          ],
+          [
+            0,
+            1,
+            3,
             4,
             5,
             6,
             7
           ],
           [
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9
-          ],
-          [
-            0,
-            2,
-            3,
-            4,
-            6,
-            8,
-            9
-          ],
-          [
-            1,
-            2,
-            4,
-            5,
-            7,
-            8,
-            9
-          ],
-          [
-            0,
-            2,
-            3,
-            5,
-            6,
-            7,
-            9
-          ],
-          [
             0,
             1,
-            3,
-            4,
-            5,
-            6,
-            9
-          ],
-          [
-            0,
-            2,
-            4,
-            5,
-            6,
-            8,
-            9
-          ],
-          [
-            1,
-            2,
             3,
             4,
             5,
             6,
             8
+          ],
+          [
+            0,
+            1,
+            3,
+            4,
+            5,
+            6,
+            9
           ],
           [
             0,
@@ -1173,16 +1195,25 @@
           [
             0,
             1,
-            2,
             3,
-            6,
+            4,
+            5,
             7,
-            8
+            9
           ],
           [
             0,
             1,
+            3,
+            4,
             5,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            3,
             6,
             7,
             8,
@@ -1191,34 +1222,7 @@
           [
             0,
             1,
-            2,
-            3,
             4,
-            7,
-            9
-          ],
-          [
-            0,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8
-          ],
-          [
-            1,
-            2,
-            3,
-            4,
-            5,
-            7,
-            9
-          ],
-          [
-            1,
-            2,
-            3,
             6,
             7,
             8,
@@ -1258,81 +1262,49 @@
       "result": {
         "status": "ok",
         "verified": true,
-        "num_groups": 15,
-        "elapsed_sec": 2.025185,
-        "first_legal_elapsed_sec": 0.096806,
+        "num_groups": 14,
+        "elapsed_sec": 16.288179,
+        "first_legal_elapsed_sec": 0.1073,
         "timed_out": false,
-        "ratio_to_reference": 1.666667,
-        "quality_index": 0.6,
+        "ratio_to_reference": 1.555556,
+        "quality_index": 0.642857,
         "groups_preview": [
           [
             0,
             1,
             2,
-            3,
-            4,
-            5
-          ],
-          [
-            0,
-            1,
-            6,
-            7,
-            8,
-            9
-          ],
-          [
-            2,
-            3,
-            6,
-            7,
-            10,
-            11
-          ],
-          [
-            4,
-            5,
-            8,
-            9,
-            10,
-            11
-          ],
-          [
-            0,
-            1,
-            2,
-            8,
-            10,
-            11
-          ],
-          [
-            0,
-            3,
             4,
             6,
-            9,
-            10
-          ],
-          [
-            1,
-            3,
-            5,
-            7,
-            9,
-            11
-          ],
-          [
-            2,
-            4,
-            5,
-            6,
-            7,
             8
           ],
           [
             0,
+            1,
+            3,
+            7,
+            9,
+            10
+          ],
+          [
+            0,
+            1,
+            5,
+            9,
+            10,
+            11
+          ],
+          [
+            0,
             2,
-            4,
+            3,
+            5,
+            8,
+            10
+          ],
+          [
+            0,
+            2,
+            6,
             7,
             9,
             11
@@ -1340,48 +1312,72 @@
           [
             0,
             3,
-            5,
-            6,
-            8,
-            11
-          ],
-          [
-            1,
-            2,
-            5,
-            6,
-            9,
-            10
-          ],
-          [
-            1,
-            3,
             4,
-            7,
-            8,
-            10
-          ],
-          [
-            0,
-            1,
-            2,
-            3,
-            8,
+            5,
+            6,
             9
           ],
           [
             0,
-            2,
-            5,
+            4,
             7,
             8,
-            10
+            10,
+            11
           ],
           [
             1,
             2,
+            3,
+            6,
+            10,
+            11
+          ],
+          [
+            1,
+            2,
+            5,
+            7,
+            8,
+            9
+          ],
+          [
+            1,
+            3,
+            4,
+            8,
+            9,
+            11
+          ],
+          [
+            1,
+            4,
+            5,
+            6,
+            7,
+            10
+          ],
+          [
+            2,
+            3,
+            4,
+            5,
+            7,
+            11
+          ],
+          [
+            2,
             4,
             6,
+            8,
+            9,
+            10
+          ],
+          [
+            3,
+            5,
+            6,
+            7,
             8,
             11
           ]
@@ -1420,8 +1416,8 @@
         "status": "ok",
         "verified": true,
         "num_groups": 23,
-        "elapsed_sec": 23.561044,
-        "first_legal_elapsed_sec": 2.872762,
+        "elapsed_sec": 25.276388,
+        "first_legal_elapsed_sec": 2.901333,
         "timed_out": false,
         "ratio_to_reference": 2.555556,
         "quality_index": 0.391304,
@@ -1585,6 +1581,608 @@
             4,
             6,
             8
+          ]
+        ],
+        "groups_truncated": true
+      },
+      "error": null
+    },
+    {
+      "id": "nc_18654",
+      "name": "Non-containment large",
+      "params": {
+        "n": 18,
+        "k": 6,
+        "j": 5,
+        "s": 4
+      },
+      "weight": 2.25,
+      "seed": 2026040611,
+      "num_attempts": 3,
+      "timeout_sec": 90.0,
+      "suites": [
+        "full"
+      ],
+      "reference": {
+        "type": "lower_bound",
+        "value": 47,
+        "source": "bounds.best_lower_bound"
+      },
+      "bounds": {
+        "volume_lb": 47,
+        "lower_bound": 47
+      },
+      "result": {
+        "status": "ok",
+        "verified": true,
+        "num_groups": 113,
+        "elapsed_sec": 50.433291,
+        "first_legal_elapsed_sec": 7.297661,
+        "timed_out": false,
+        "ratio_to_reference": 2.404255,
+        "quality_index": 0.415929,
+        "groups_preview": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          [
+            0,
+            1,
+            6,
+            7,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            10,
+            11,
+            12,
+            13
+          ],
+          [
+            0,
+            1,
+            14,
+            15,
+            16,
+            17
+          ],
+          [
+            2,
+            3,
+            6,
+            7,
+            10,
+            11
+          ],
+          [
+            2,
+            3,
+            8,
+            9,
+            12,
+            13
+          ],
+          [
+            2,
+            4,
+            6,
+            8,
+            14,
+            15
+          ],
+          [
+            2,
+            4,
+            7,
+            9,
+            16,
+            17
+          ],
+          [
+            2,
+            5,
+            10,
+            12,
+            14,
+            16
+          ],
+          [
+            2,
+            5,
+            11,
+            13,
+            15,
+            17
+          ],
+          [
+            3,
+            4,
+            10,
+            12,
+            15,
+            17
+          ],
+          [
+            3,
+            4,
+            11,
+            13,
+            14,
+            16
+          ],
+          [
+            3,
+            5,
+            6,
+            8,
+            16,
+            17
+          ],
+          [
+            3,
+            5,
+            7,
+            9,
+            14,
+            15
+          ],
+          [
+            4,
+            5,
+            6,
+            7,
+            12,
+            13
+          ],
+          [
+            4,
+            5,
+            8,
+            9,
+            10,
+            11
+          ],
+          [
+            6,
+            9,
+            10,
+            13,
+            14,
+            17
+          ],
+          [
+            6,
+            9,
+            11,
+            12,
+            15,
+            16
+          ],
+          [
+            7,
+            8,
+            10,
+            13,
+            15,
+            16
+          ],
+          [
+            7,
+            8,
+            11,
+            12,
+            14,
+            17
+          ]
+        ],
+        "groups_truncated": true
+      },
+      "error": null
+    },
+    {
+      "id": "ljcr_20655",
+      "name": "Containment large",
+      "params": {
+        "n": 20,
+        "k": 6,
+        "j": 5,
+        "s": 5
+      },
+      "weight": 2.5,
+      "seed": 2026040612,
+      "num_attempts": 3,
+      "timeout_sec": 100.0,
+      "suites": [
+        "full"
+      ],
+      "reference": {
+        "type": "ljcr",
+        "value": 2800,
+        "source": "bounds.py / LJCR"
+      },
+      "bounds": {
+        "volume_lb": 2584,
+        "lower_bound": 2624,
+        "schoenheim_lb": 2624,
+        "ljcr_best": 2800
+      },
+      "result": {
+        "status": "ok",
+        "verified": true,
+        "num_groups": 3315,
+        "elapsed_sec": 27.56387,
+        "first_legal_elapsed_sec": 8.187831,
+        "timed_out": false,
+        "ratio_to_reference": 1.183929,
+        "quality_index": 0.844646,
+        "groups_preview": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            6,
+            7
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            8,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            10,
+            11
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            12,
+            13
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            14,
+            15
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            16,
+            17
+          ],
+          [
+            0,
+            1,
+            2,
+            3,
+            18,
+            19
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            6,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            7,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            10,
+            12
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            11,
+            13
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            14,
+            16
+          ],
+          [
+            0,
+            1,
+            2,
+            4,
+            15,
+            17
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            6,
+            9
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            7,
+            8
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            10,
+            13
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            11,
+            12
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            14,
+            17
+          ],
+          [
+            0,
+            1,
+            2,
+            5,
+            15,
+            16
+          ]
+        ],
+        "groups_truncated": true
+      },
+      "error": null
+    },
+    {
+      "id": "nc_20664",
+      "name": "Non-containment large stress",
+      "params": {
+        "n": 20,
+        "k": 6,
+        "j": 6,
+        "s": 4
+      },
+      "weight": 2.5,
+      "seed": 2026040613,
+      "num_attempts": 2,
+      "timeout_sec": 100.0,
+      "suites": [
+        "full"
+      ],
+      "reference": {
+        "type": "lower_bound",
+        "value": 27,
+        "source": "bounds.best_lower_bound"
+      },
+      "bounds": {
+        "volume_lb": 27,
+        "lower_bound": 27
+      },
+      "result": {
+        "status": "ok",
+        "verified": true,
+        "num_groups": 92,
+        "elapsed_sec": 80.775098,
+        "first_legal_elapsed_sec": 0.161926,
+        "timed_out": false,
+        "ratio_to_reference": 3.407407,
+        "quality_index": 0.293478,
+        "groups_preview": [
+          [
+            7,
+            9,
+            13,
+            15,
+            16,
+            17
+          ],
+          [
+            0,
+            1,
+            10,
+            11,
+            14,
+            18
+          ],
+          [
+            1,
+            3,
+            4,
+            8,
+            15,
+            19
+          ],
+          [
+            2,
+            3,
+            6,
+            7,
+            10,
+            12
+          ],
+          [
+            2,
+            5,
+            9,
+            12,
+            18,
+            19
+          ],
+          [
+            0,
+            4,
+            5,
+            6,
+            8,
+            13
+          ],
+          [
+            2,
+            4,
+            11,
+            14,
+            16,
+            17
+          ],
+          [
+            5,
+            11,
+            12,
+            14,
+            15,
+            17
+          ],
+          [
+            6,
+            10,
+            16,
+            17,
+            18,
+            19
+          ],
+          [
+            0,
+            1,
+            3,
+            5,
+            7,
+            16
+          ],
+          [
+            3,
+            8,
+            9,
+            10,
+            11,
+            13
+          ],
+          [
+            0,
+            2,
+            13,
+            14,
+            15,
+            19
+          ],
+          [
+            6,
+            7,
+            8,
+            9,
+            14,
+            18
+          ],
+          [
+            0,
+            1,
+            4,
+            9,
+            12,
+            17
+          ],
+          [
+            1,
+            6,
+            11,
+            12,
+            13,
+            16
+          ],
+          [
+            4,
+            5,
+            7,
+            10,
+            11,
+            19
+          ],
+          [
+            2,
+            5,
+            8,
+            10,
+            15,
+            16
+          ],
+          [
+            3,
+            4,
+            12,
+            13,
+            14,
+            18
+          ],
+          [
+            1,
+            2,
+            7,
+            8,
+            17,
+            18
+          ],
+          [
+            0,
+            3,
+            6,
+            11,
+            15,
+            18
           ]
         ],
         "groups_truncated": true
