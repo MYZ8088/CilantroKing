@@ -66,6 +66,38 @@ class CleanModernApp:
 
     def run(self) -> None:
         self.root.mainloop()
+    
+    def _on_window_resize(self, event) -> None:
+        """Handle window resize to adjust layout responsively."""
+        # Only respond to root window resize events
+        if event.widget != self.root:
+            return
+        
+        width = event.width
+        # Threshold for switching between layouts (e.g., 1200px)
+        wide_threshold = 1200
+        
+        should_be_wide = width >= wide_threshold
+        
+        # Only update if layout mode changed
+        if should_be_wide != self._is_wide_layout:
+            self._is_wide_layout = should_be_wide
+            self._update_layout()
+    
+    def _update_layout(self) -> None:
+        """Update the layout based on window width."""
+        # Forget current packing
+        self._main_left_col.pack_forget()
+        self._main_right_col.pack_forget()
+        
+        if self._is_wide_layout:
+            # Wide layout: two columns side by side (results on the right)
+            self._main_left_col.pack(side="left", fill="both", expand=False)
+            self._main_right_col.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        else:
+            # Narrow layout: single column stacked (results below)
+            self._main_left_col.pack(fill="x")
+            self._main_right_col.pack(fill="both", expand=True)
 
     # ==================================================================
     # Screen switching
@@ -246,8 +278,17 @@ class CleanModernApp:
 
         self._main_left_col = tk.Frame(self._main_columns_container, bg=self.colors['bg'])
         self._main_right_col = tk.Frame(self._main_columns_container, bg=self.colors['bg'])
+        
+        # Initially pack in single column (will adjust based on window size)
         self._main_left_col.pack(fill="x")
         self._main_right_col.pack(fill="both", expand=True)
+        
+        # Track layout mode
+        self._is_wide_layout = False
+        
+        # Bind window resize event
+        self.root.bind("<Configure>", self._on_window_resize)
+        
         scroll_frame = self._main_left_col
 
         # Parameters Card
@@ -333,56 +374,62 @@ class CleanModernApp:
         )
         self._samples_lbl.pack(fill="x", pady=(12, 0))
 
-        # Action Buttons
+        # Action Buttons - responsive layout
         btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
         btn_frame.pack(fill="x", pady=(0, 15))
 
-        left_btns = tk.Frame(btn_frame, bg=self.colors['bg'])
-        left_btns.pack(side="left")
-
+        # First row
+        btn_row1 = tk.Frame(btn_frame, bg=self.colors['bg'])
+        btn_row1.pack(fill="x", pady=(0, 6))
+        
+        btn_width = 14
+        btn_spacing = 6
+        
         self._exec_btn = self._create_button(
-            left_btns, "▶ Execute", self._on_execute,
-            bg=self.colors['primary'], width=15, height=2
+            btn_row1, "▶ Execute", self._on_execute,
+            bg=self.colors['primary'], width=btn_width
         )
-        self._exec_btn.pack(side="left", padx=(0, 10))
+        self._exec_btn.pack(side="left", padx=(0, btn_spacing))
         
         self._cancel_btn = self._create_button(
-            left_btns, "⏹ Cancel", self._on_cancel,
-            bg=self.colors['danger'], width=12, state="disabled"
+            btn_row1, "⏹ Cancel", self._on_cancel,
+            bg=self.colors['danger'], width=btn_width, state="disabled"
         )
-        self._cancel_btn.pack(side="left", padx=(0, 10))
+        self._cancel_btn.pack(side="left", padx=(0, btn_spacing))
         
         self._store_btn = self._create_button(
-            left_btns, "💾 Store", self._on_store,
-            bg=self.colors['secondary'], width=12, state="disabled"
+            btn_row1, "💾 Store", self._on_store,
+            bg=self.colors['secondary'], width=btn_width, state="disabled"
         )
-        self._store_btn.pack(side="left", padx=(0, 10))
+        self._store_btn.pack(side="left", padx=(0, btn_spacing))
         
         self._verify_btn = self._create_button(
-            left_btns, "✓ Verify", self._on_verify,
-            bg="#f59e0b", width=12, state="disabled"
+            btn_row1, "✓ Verify", self._on_verify,
+            bg="#f59e0b", width=btn_width, state="disabled"
         )
-        self._verify_btn.pack(side="left", padx=(0, 10))
+        self._verify_btn.pack(side="left", padx=(0, btn_spacing))
         
         self._print_btn = self._create_button(
-            left_btns, "🖨 Print Details", self._on_print,
-            bg=self.colors['secondary'], width=14, state="disabled"
+            btn_row1, "🖨 Print Details", self._on_print,
+            bg=self.colors['secondary'], width=btn_width, state="disabled"
         )
-        self._print_btn.pack(side="left", padx=(0, 10))
+        self._print_btn.pack(side="left")
+        
+        # Second row
+        btn_row2 = tk.Frame(btn_frame, bg=self.colors['bg'])
+        btn_row2.pack(fill="x")
         
         self._clear_btn = self._create_button(
-            left_btns, "🗑 Clear", self._on_clear,
-            bg="gray40", width=12
+            btn_row2, "🗑 Clear", self._on_clear,
+            bg="gray40", width=btn_width
         )
-        self._clear_btn.pack(side="left")
-
-        right_btns = tk.Frame(btn_frame, bg=self.colors['bg'])
-        right_btns.pack(side="right")
+        self._clear_btn.pack(side="left", padx=(0, btn_spacing))
         
-        self._create_button(
-            right_btns, "📁 Database Browser", self._show_db,
-            bg="#6366f1", width=18
-        ).pack()
+        self._db_btn = self._create_button(
+            btn_row2, "📁 Database", self._show_db,
+            bg="#6366f1", width=btn_width
+        )
+        self._db_btn.pack(side="left")
 
         # Progress Card
         progress_card = self._create_card(scroll_frame, "⏱ Progress")
@@ -407,10 +454,10 @@ class CleanModernApp:
         )
         self._prog_bar.pack(fill="x")
         self._prog_bar["value"] = 0
-        scroll_frame = self._main_right_col
 
-        # Results Card
-        results_card = self._create_card(scroll_frame, "📋 Results")
+        # Results Card - add to right column for wide layout
+        results_frame = self._main_right_col
+        results_card = self._create_card(results_frame, "📋 Results")
         results_card.pack(fill="both", expand=True)
 
         results_content = tk.Frame(results_card, bg=self.colors['card_bg'])
