@@ -385,6 +385,7 @@ class CoveringDesignSolver:
         k: int,
         j: int,
         s: int,
+        t: int = 1,
         *,
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
@@ -392,6 +393,27 @@ class CoveringDesignSolver:
         time_budget_sec: float | None = None,
         skip_final_verify: bool = False,
     ) -> None:
+        # For t > 1, delegate to TCoveringSolver
+        if t > 1:
+            from tcovering_solver import TCoveringSolver
+            self._tcovering_solver = TCoveringSolver(
+                n=n, k=k, j=j, s=s, t=t,
+                progress_cb=progress_cb,
+                cancel_fn=cancel_fn,
+                num_attempts=num_attempts,
+                time_budget_sec=time_budget_sec,
+            )
+            self._is_tcovering = True
+            # Set basic attributes for compatibility
+            self.n = n
+            self.k = k
+            self.j = j
+            self.s = s
+            self.t = t
+            return
+        
+        self._is_tcovering = False
+        
         # Start timing from initialization to include preprocessing
         self._t0 = time.time()
         
@@ -399,6 +421,7 @@ class CoveringDesignSolver:
         self.k = k
         self.j = j
         self.s = s
+        self.t = t
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
@@ -421,6 +444,11 @@ class CoveringDesignSolver:
             raise ValueError(f"Need s<=j<=k, got s={s} j={j} k={k}")
         if n < k:
             raise ValueError(f"Need n>=k, got n={n} k={k}")
+        
+        # Validate t parameter (only t=1 in this path)
+        max_t = comb(j, s)
+        if not 1 <= t <= max_t:
+            raise ValueError(f"t must be between 1 and C({j},{s})={max_t}, got {t}")
 
         self._containment = s == j
 
@@ -643,6 +671,10 @@ class CoveringDesignSolver:
     # ------------------------------------------------------------------
 
     def solve(self) -> SolverResult:
+        # Delegate to TCoveringSolver if t > 1
+        if hasattr(self, '_is_tcovering') and self._is_tcovering:
+            return self._tcovering_solver.solve()
+        
         if self._identity_cover:
             return self._solve_identity_cover()
 
