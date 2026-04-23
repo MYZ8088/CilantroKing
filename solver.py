@@ -687,6 +687,9 @@ class CoveringDesignSolver:
         attempt = 0
         stagnant = 0
         avg_attempt_sec: float | None = None
+        best_updated_at: float | None = None
+        last_sol_sig: int | None = None
+        same_sig_streak = 0
 
         if self._gpu_enabled:
             self._report("gpu", "GPU batch scoring enabled")
@@ -695,20 +698,31 @@ class CoveringDesignSolver:
             seed = self._fast_seed_solution()
             if seed:
                 best = seed
+                best_updated_at = time.time()
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
 
         large_seed_intensify = self._is_large_j_equals_k_noncontainment()
         while attempt < hard_cap:
+            attempt_idx = attempt + 1
             if self._cancel():
                 break
             if self._phase_a_should_stop_for_budget(avg_attempt_sec):
                 break
+            if self._phase_a_should_stop_for_stagnation(
+                best=best,
+                best_updated_at=best_updated_at,
+                attempt=attempt,
+                stagnant=stagnant,
+                same_sig_streak=same_sig_streak,
+                avg_attempt_sec=avg_attempt_sec,
+            ):
+                break
 
-            attempt_idx = attempt + 1
             base_profile = profiles[attempt % len(profiles)]
             profile = self._phase_b_strategy_variant(base_profile, attempt_idx)
             attempt_started_at = time.time()
+            best_len_at_start = len(best) if best is not None else None
             seed_mode = large_seed_intensify and best is not None
             if seed_mode:
                 sol = list(best)
@@ -762,11 +776,18 @@ class CoveringDesignSolver:
                 best_len=len(best) if best is not None else None,
                 stagnant=stagnant,
             )
+            sol_sig = hash(tuple(sol))
+            if last_sol_sig is not None and sol_sig == last_sol_sig:
+                same_sig_streak += 1
+            else:
+                same_sig_streak = 0
+            last_sol_sig = sol_sig
 
             improved = best is None or len(sol) < len(best)
             if improved:
                 best = sol
                 stagnant = 0
+                same_sig_streak = 0
                 self._note_legal_solution()
                 self._report(
                     "optimize",
@@ -774,6 +795,11 @@ class CoveringDesignSolver:
                 )
             else:
                 stagnant += 1
+
+            if best is not None and (
+                best_len_at_start is None or len(best) < best_len_at_start
+            ):
+                best_updated_at = time.time()
 
             attempt_elapsed = max(0.0, time.time() - attempt_started_at)
             if avg_attempt_sec is None:
@@ -940,6 +966,45 @@ class CoveringDesignSolver:
         elif self._is_mid_j_equals_k_noncontainment():
             ratio = 0.45
         return remaining < max(0.15, avg_attempt_sec * ratio)
+
+    def _phase_a_should_stop_for_stagnation(
+        self,
+        *,
+        best: list[int] | None,
+        best_updated_at: float | None,
+        attempt: int,
+        stagnant: int,
+        same_sig_streak: int,
+        avg_attempt_sec: float | None,
+    ) -> bool:
+        if best is None or best_updated_at is None:
+            return False
+        if not self._is_large_j_equals_k_noncontainment():
+            return False
+
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return False
+        if attempt < 9 or stagnant < 7:
+            return False
+        if same_sig_streak < 7:
+            return False
+
+        since_best = max(0.0, time.time() - best_updated_at)
+        dyn_threshold = 55.0
+        if avg_attempt_sec is not None:
+            dyn_threshold = max(dyn_threshold, avg_attempt_sec * 6.0)
+        if since_best < dyn_threshold:
+            return False
+
+        self._report(
+            "optimize",
+            (
+                "Early stop: stagnation detected "
+                f"(no improve for {since_best:.1f}s, stagnant={stagnant}, repeat={same_sig_streak})"
+            ),
+        )
+        return True
 
     def _phase_a_can_extend_search(
         self,
