@@ -461,10 +461,11 @@ class CoveringDesignSolver:
         if self._identity_cover:
             return
 
+        gpu_min_interaction = max(0, _env_int("CK_GPU_MIN_INTERACTION", 0))
         self._gpu_enabled = bool(
             _env_int("CK_USE_GPU", 1)
             and cp is not None
-            and self._interaction_scale >= 500_000_000
+            and self._interaction_scale >= gpu_min_interaction
             and _probe_gpu_batch_path()
         )
 
@@ -1985,7 +1986,7 @@ class CoveringDesignSolver:
             self._gpu_enabled
             and not self._gpu_failed
             and len(cands) >= 256
-            and len(targets) >= 4096
+            and len(targets) >= 1024
         ):
             try:
                 return self._batch_scores_gpu(cands, targets)
@@ -2001,7 +2002,7 @@ class CoveringDesignSolver:
             self._gpu_enabled
             and not self._gpu_failed
             and len(cands) >= 256
-            and len(targets) >= 4096
+            and len(targets) >= 1024
         ):
             try:
                 return self._batch_best_gpu(cands, targets)
@@ -2178,8 +2179,8 @@ class CoveringDesignSolver:
             return self.num_targets == 0
         if (
             self._gpu_active()
-            and self.num_targets >= 4096
-            and len(masks) * self.num_targets >= 20_000_000
+            and self.num_targets >= 2048
+            and len(masks) * self.num_targets >= 4_000_000
         ):
             try:
                 return self._verify_gpu(masks)
@@ -2197,9 +2198,9 @@ class CoveringDesignSolver:
     def _uncovered_masks(self, masks: list[int]) -> np.ndarray:
         if (
             self._gpu_active()
-            and self.num_targets >= 4096
+            and self.num_targets >= 2048
             and masks
-            and len(masks) * self.num_targets >= 20_000_000
+            and len(masks) * self.num_targets >= 4_000_000
         ):
             try:
                 return self._uncovered_masks_gpu(masks)
@@ -2515,9 +2516,11 @@ class CoveringDesignSolver:
 
             model = cp_model.CpModel()
             vars_x = [model.NewBoolVar(f"x_{i}") for i in range(self.num_cands)]
-            model.Add(sum(vars_x) <= upper_bound)
+            objective = sum(vars_x)
+            model.Add(objective <= upper_bound)
             for covering in self._inv_table:
                 model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+            model.Minimize(objective)
 
             for idx in selected_indices:
                 model.AddHint(vars_x[idx], 1)
@@ -2652,12 +2655,14 @@ class CoveringDesignSolver:
         local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
         model = cp_model.CpModel()
         vars_x = [model.NewBoolVar(f"x_{i}") for i in range(len(neighborhood))]
-        model.Add(sum(vars_x) <= target_ub)
+        objective = sum(vars_x)
+        model.Add(objective <= target_ub)
         for covering in self._inv_table:
             loc = [local_pos[int(ci)] for ci in covering if int(ci) in local_pos]
             if not loc:
                 continue
             model.AddBoolOr([vars_x[i] for i in loc])
+        model.Minimize(objective)
         for ci in selected_indices:
             model.AddHint(vars_x[local_pos[ci]], 1)
 
@@ -3002,6 +3007,10 @@ class CoveringDesignSolver:
             remaining = self._time_remaining_sec()
             if remaining is None or remaining < 4.0:
                 break
+            hard_case = (
+                (self.j == self.k and not self._containment)
+                or (self._containment and self.k >= 6 and self.n >= 14)
+            )
 
             ranked = np.argsort(ranked_scores)[::-1]
             max_extra = max(0, self.num_cands - len(selected_indices))
@@ -3045,7 +3054,8 @@ class CoveringDesignSolver:
                 local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
                 model = cp_model.CpModel()
                 vars_x = [model.NewBoolVar(f"xh_{i}") for i in range(len(neighborhood))]
-                model.Add(sum(vars_x) <= target_ub)
+                objective = sum(vars_x)
+                model.Add(objective <= target_ub)
 
                 missing_cover = False
                 for covering in self._inv_table:
@@ -3056,6 +3066,7 @@ class CoveringDesignSolver:
                     model.AddBoolOr([vars_x[i] for i in loc])
                 if missing_cover:
                     continue
+                model.Minimize(objective)
 
                 for ci in selected_indices:
                     p = local_pos.get(ci)
@@ -3069,7 +3080,7 @@ class CoveringDesignSolver:
                     seeds.append(47)
                 per_run = max(
                     2.0,
-                    min(10.0, (run_remaining - 0.8) / max(1, len(seeds))),
+                    min(18.0 if hard_case else 10.0, (run_remaining - 0.8) / max(1, len(seeds))),
                 )
 
                 for seed in seeds:
