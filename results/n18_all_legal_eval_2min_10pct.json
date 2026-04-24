@@ -1,0 +1,1296 @@
+{
+  "generated_at": "2026-04-24 21:54:21",
+  "baseline_file": "results/coveringrepo_n_lt_26_baselines.json",
+  "summary": {
+    "time_limit_sec": 120.0,
+    "quality_tolerance": "solver_blocks <= baseline_blocks * 1.10",
+    "n_fixed": 18,
+    "total_cases": 28,
+    "compliant_cases": 4,
+    "non_compliant_cases": 24,
+    "verified_cases": 26,
+    "over_120s_cases": 4,
+    "quality_over_10pct_cases": 22,
+    "reason_breakdown": {
+      "quality_over_10pct": 22,
+      "timeout_over_120s": 4,
+      "verification_failed": 2
+    },
+    "non_compliant_family_breakdown": {
+      "containment_s_eq_j": 7,
+      "j_eq_k_noncontain_medium_n": 9,
+      "general_noncontain": 8
+    },
+    "worst_quality_top15": [
+      {
+        "id": "L_18_7_7_6",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 7,
+          "s": 6
+        },
+        "baseline_blocks": 654,
+        "solver_blocks": 946,
+        "quality_ratio_to_baseline": 1.446483,
+        "relative_error_vs_baseline": 0.446483,
+        "elapsed_sec": 96.64513,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_6_5_4",
+        "params": {
+          "n": 18,
+          "k": 6,
+          "j": 5,
+          "s": 4
+        },
+        "baseline_blocks": 81,
+        "solver_blocks": 113,
+        "quality_ratio_to_baseline": 1.395062,
+        "relative_error_vs_baseline": 0.395062,
+        "elapsed_sec": 59.91,
+        "family": "general_noncontain"
+      },
+      {
+        "id": "L_18_7_7_4",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 7,
+          "s": 4
+        },
+        "baseline_blocks": 11,
+        "solver_blocks": 15,
+        "quality_ratio_to_baseline": 1.363636,
+        "relative_error_vs_baseline": 0.363636,
+        "elapsed_sec": 66.89,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_5_5_4",
+        "params": {
+          "n": 18,
+          "k": 5,
+          "j": 5,
+          "s": 4
+        },
+        "baseline_blocks": 214,
+        "solver_blocks": 290,
+        "quality_ratio_to_baseline": 1.35514,
+        "relative_error_vs_baseline": 0.35514,
+        "elapsed_sec": 120.8,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_7_4_3",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 4,
+          "s": 3
+        },
+        "baseline_blocks": 15,
+        "solver_blocks": 20,
+        "quality_ratio_to_baseline": 1.333333,
+        "relative_error_vs_baseline": 0.333333,
+        "elapsed_sec": 61.65,
+        "family": "general_noncontain"
+      },
+      {
+        "id": "L_18_5_5_3",
+        "params": {
+          "n": 18,
+          "k": 5,
+          "j": 5,
+          "s": 3
+        },
+        "baseline_blocks": 22,
+        "solver_blocks": 29,
+        "quality_ratio_to_baseline": 1.318182,
+        "relative_error_vs_baseline": 0.318182,
+        "elapsed_sec": 128.27,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_6_4_4",
+        "params": {
+          "n": 18,
+          "k": 6,
+          "j": 4,
+          "s": 4
+        },
+        "baseline_blocks": 236,
+        "solver_blocks": 305,
+        "quality_ratio_to_baseline": 1.292373,
+        "relative_error_vs_baseline": 0.292373,
+        "elapsed_sec": 3.18,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_18_7_3_3",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 3,
+          "s": 3
+        },
+        "baseline_blocks": 32,
+        "solver_blocks": 41,
+        "quality_ratio_to_baseline": 1.28125,
+        "relative_error_vs_baseline": 0.28125,
+        "elapsed_sec": 37.22,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_18_5_4_3",
+        "params": {
+          "n": 18,
+          "k": 5,
+          "j": 4,
+          "s": 3
+        },
+        "baseline_blocks": 43,
+        "solver_blocks": 55,
+        "quality_ratio_to_baseline": 1.27907,
+        "relative_error_vs_baseline": 0.27907,
+        "elapsed_sec": 56.09,
+        "family": "general_noncontain"
+      },
+      {
+        "id": "L_18_7_5_5",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 5,
+          "s": 5
+        },
+        "baseline_blocks": 548,
+        "solver_blocks": 696,
+        "quality_ratio_to_baseline": 1.270073,
+        "relative_error_vs_baseline": 0.270073,
+        "elapsed_sec": 6.29,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_18_7_4_4",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 4,
+          "s": 4
+        },
+        "baseline_blocks": 126,
+        "solver_blocks": 160,
+        "quality_ratio_to_baseline": 1.269841,
+        "relative_error_vs_baseline": 0.269841,
+        "elapsed_sec": 4.25,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_18_6_6_4",
+        "params": {
+          "n": 18,
+          "k": 6,
+          "j": 6,
+          "s": 4
+        },
+        "baseline_blocks": 42,
+        "solver_blocks": 53,
+        "quality_ratio_to_baseline": 1.261905,
+        "relative_error_vs_baseline": 0.261905,
+        "elapsed_sec": 118.76,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_7_5_4",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 5,
+          "s": 4
+        },
+        "baseline_blocks": 47,
+        "solver_blocks": 59,
+        "quality_ratio_to_baseline": 1.255319,
+        "relative_error_vs_baseline": 0.255319,
+        "elapsed_sec": 101.62,
+        "family": "general_noncontain"
+      },
+      {
+        "id": "L_18_4_4_3",
+        "params": {
+          "n": 18,
+          "k": 4,
+          "j": 4,
+          "s": 3
+        },
+        "baseline_blocks": 93,
+        "solver_blocks": 116,
+        "quality_ratio_to_baseline": 1.247312,
+        "relative_error_vs_baseline": 0.247312,
+        "elapsed_sec": 119.77,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_18_7_6_5",
+        "params": {
+          "n": 18,
+          "k": 7,
+          "j": 6,
+          "s": 5
+        },
+        "baseline_blocks": 174,
+        "solver_blocks": 213,
+        "quality_ratio_to_baseline": 1.224138,
+        "relative_error_vs_baseline": 0.224138,
+        "elapsed_sec": 84.99,
+        "family": "general_noncontain"
+      }
+    ]
+  },
+  "non_compliant_cases": [
+    {
+      "id": "L_18_7_7_6",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 654,
+      "solver_blocks": 946,
+      "elapsed_sec": 96.64513,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.446483,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.446483,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_5_4",
+      "n": 18,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 81,
+      "solver_blocks": 113,
+      "elapsed_sec": 59.91,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.395062,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.395062,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_7_4",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 4,
+      "baseline_blocks": 11,
+      "solver_blocks": 15,
+      "elapsed_sec": 66.89,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.363636,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.363636,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_5_4",
+      "n": 18,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 214,
+      "solver_blocks": 290,
+      "elapsed_sec": 120.8,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.35514,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.35514,
+      "within_120s": false,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "timeout_over_120s",
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_4_3",
+      "n": 18,
+      "k": 7,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 15,
+      "solver_blocks": 20,
+      "elapsed_sec": 61.65,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.333333,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.333333,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_5_3",
+      "n": 18,
+      "k": 5,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 22,
+      "solver_blocks": 29,
+      "elapsed_sec": 128.27,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.318182,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.318182,
+      "within_120s": false,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "timeout_over_120s",
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_4_4",
+      "n": 18,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 236,
+      "solver_blocks": 305,
+      "elapsed_sec": 3.18,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.292373,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.292373,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_3_3",
+      "n": 18,
+      "k": 7,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 32,
+      "solver_blocks": 41,
+      "elapsed_sec": 37.22,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.28125,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.28125,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_4_3",
+      "n": 18,
+      "k": 5,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 43,
+      "solver_blocks": 55,
+      "elapsed_sec": 56.09,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.27907,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.27907,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_5_5",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 548,
+      "solver_blocks": 696,
+      "elapsed_sec": 6.29,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.270073,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.270073,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_4_4",
+      "n": 18,
+      "k": 7,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 126,
+      "solver_blocks": 160,
+      "elapsed_sec": 4.25,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.269841,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.269841,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_6_4",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 42,
+      "solver_blocks": 53,
+      "elapsed_sec": 118.76,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.261905,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.261905,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_5_4",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 47,
+      "solver_blocks": 59,
+      "elapsed_sec": 101.62,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.255319,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.255319,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_4_4_3",
+      "n": 18,
+      "k": 4,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 93,
+      "solver_blocks": 116,
+      "elapsed_sec": 119.77,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.247312,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.247312,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_6_5",
+      "n": 18,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 174,
+      "solver_blocks": 213,
+      "elapsed_sec": 84.99,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.224138,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.224138,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_6_5",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 471,
+      "solver_blocks": 571,
+      "elapsed_sec": 114.42,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.212314,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.212314,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_4_3",
+      "n": 18,
+      "k": 6,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 24,
+      "solver_blocks": 29,
+      "elapsed_sec": 96.01,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.208333,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.208333,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_7_5",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 5,
+      "baseline_blocks": 72,
+      "solver_blocks": 86,
+      "elapsed_sec": 106.365827,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.194444,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.194444,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_6_4",
+      "n": 18,
+      "k": 7,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 24,
+      "solver_blocks": 28,
+      "elapsed_sec": 49.37,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.166667,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.166667,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_3_3",
+      "n": 18,
+      "k": 5,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 94,
+      "solver_blocks": 108,
+      "elapsed_sec": 5.48,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.148936,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.148936,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_4_3_3",
+      "n": 18,
+      "k": 4,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 207,
+      "solver_blocks": 232,
+      "elapsed_sec": 1.0,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.120773,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.120773,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_4_4",
+      "n": 18,
+      "k": 5,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 664,
+      "solver_blocks": 732,
+      "elapsed_sec": 3.6,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.10241,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.10241,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_5_3",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 8,
+      "solver_blocks": 0,
+      "elapsed_sec": 468.66,
+      "solver_verified": false,
+      "quality_ratio_to_baseline": 0.0,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": -1.0,
+      "within_120s": false,
+      "quality_within_10pct": true,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "verification_failed",
+        "timeout_over_120s"
+      ]
+    },
+    {
+      "id": "L_18_6_6_3",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 3,
+      "baseline_blocks": 7,
+      "solver_blocks": 0,
+      "elapsed_sec": 327.23,
+      "solver_verified": false,
+      "quality_ratio_to_baseline": 0.0,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": -1.0,
+      "within_120s": false,
+      "quality_within_10pct": true,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "verification_failed",
+        "timeout_over_120s"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "L_18_4_3_3",
+      "n": 18,
+      "k": 4,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 207,
+      "solver_blocks": 232,
+      "elapsed_sec": 1.0,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.120773,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.120773,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_4_4_3",
+      "n": 18,
+      "k": 4,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 93,
+      "solver_blocks": 116,
+      "elapsed_sec": 119.77,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.247312,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.247312,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_3_3",
+      "n": 18,
+      "k": 5,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 94,
+      "solver_blocks": 108,
+      "elapsed_sec": 5.48,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.148936,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.148936,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_4_3",
+      "n": 18,
+      "k": 5,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 43,
+      "solver_blocks": 55,
+      "elapsed_sec": 56.09,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.27907,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.27907,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_4_4",
+      "n": 18,
+      "k": 5,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 664,
+      "solver_blocks": 732,
+      "elapsed_sec": 3.6,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.10241,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.10241,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_5_3",
+      "n": 18,
+      "k": 5,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 22,
+      "solver_blocks": 29,
+      "elapsed_sec": 128.27,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.318182,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.318182,
+      "within_120s": false,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "timeout_over_120s",
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_5_5_4",
+      "n": 18,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 214,
+      "solver_blocks": 290,
+      "elapsed_sec": 120.8,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.35514,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.35514,
+      "within_120s": false,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "timeout_over_120s",
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_3_3",
+      "n": 18,
+      "k": 6,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 48,
+      "solver_blocks": 52,
+      "elapsed_sec": 49.81,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.083333,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.083333,
+      "within_120s": true,
+      "quality_within_10pct": true,
+      "compliant": true,
+      "non_compliant_reasons": []
+    },
+    {
+      "id": "L_18_6_4_3",
+      "n": 18,
+      "k": 6,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 24,
+      "solver_blocks": 29,
+      "elapsed_sec": 96.01,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.208333,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.208333,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_4_4",
+      "n": 18,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 236,
+      "solver_blocks": 305,
+      "elapsed_sec": 3.18,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.292373,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.292373,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_5_3",
+      "n": 18,
+      "k": 6,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 12,
+      "solver_blocks": 12,
+      "elapsed_sec": 105.69,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.0,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.0,
+      "within_120s": true,
+      "quality_within_10pct": true,
+      "compliant": true,
+      "non_compliant_reasons": []
+    },
+    {
+      "id": "L_18_6_5_4",
+      "n": 18,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 81,
+      "solver_blocks": 113,
+      "elapsed_sec": 59.91,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.395062,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.395062,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_6_3",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 3,
+      "baseline_blocks": 7,
+      "solver_blocks": 0,
+      "elapsed_sec": 327.23,
+      "solver_verified": false,
+      "quality_ratio_to_baseline": 0.0,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": -1.0,
+      "within_120s": false,
+      "quality_within_10pct": true,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "verification_failed",
+        "timeout_over_120s"
+      ]
+    },
+    {
+      "id": "L_18_6_6_4",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 42,
+      "solver_blocks": 53,
+      "elapsed_sec": 118.76,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.261905,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.261905,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_6_6_5",
+      "n": 18,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 471,
+      "solver_blocks": 571,
+      "elapsed_sec": 114.42,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.212314,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.212314,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_3_3",
+      "n": 18,
+      "k": 7,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 32,
+      "solver_blocks": 41,
+      "elapsed_sec": 37.22,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.28125,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.28125,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_4_3",
+      "n": 18,
+      "k": 7,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 15,
+      "solver_blocks": 20,
+      "elapsed_sec": 61.65,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.333333,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.333333,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_4_4",
+      "n": 18,
+      "k": 7,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 126,
+      "solver_blocks": 160,
+      "elapsed_sec": 4.25,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.269841,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.269841,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_5_3",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 8,
+      "solver_blocks": 0,
+      "elapsed_sec": 468.66,
+      "solver_verified": false,
+      "quality_ratio_to_baseline": 0.0,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": -1.0,
+      "within_120s": false,
+      "quality_within_10pct": true,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "verification_failed",
+        "timeout_over_120s"
+      ]
+    },
+    {
+      "id": "L_18_7_5_4",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 47,
+      "solver_blocks": 59,
+      "elapsed_sec": 101.62,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.255319,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.255319,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_5_5",
+      "n": 18,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 548,
+      "solver_blocks": 696,
+      "elapsed_sec": 6.29,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.270073,
+      "family": "containment_s_eq_j",
+      "relative_error_vs_baseline": 0.270073,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_6_3",
+      "n": 18,
+      "k": 7,
+      "j": 6,
+      "s": 3,
+      "baseline_blocks": 4,
+      "solver_blocks": 4,
+      "elapsed_sec": 23.67,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.0,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.0,
+      "within_120s": true,
+      "quality_within_10pct": true,
+      "compliant": true,
+      "non_compliant_reasons": []
+    },
+    {
+      "id": "L_18_7_6_4",
+      "n": 18,
+      "k": 7,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 24,
+      "solver_blocks": 28,
+      "elapsed_sec": 49.37,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.166667,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.166667,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_6_5",
+      "n": 18,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 174,
+      "solver_blocks": 213,
+      "elapsed_sec": 84.99,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.224138,
+      "family": "general_noncontain",
+      "relative_error_vs_baseline": 0.224138,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_7_3",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 3,
+      "baseline_blocks": 3,
+      "solver_blocks": 3,
+      "elapsed_sec": 3.06,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.0,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.0,
+      "within_120s": true,
+      "quality_within_10pct": true,
+      "compliant": true,
+      "non_compliant_reasons": []
+    },
+    {
+      "id": "L_18_7_7_4",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 4,
+      "baseline_blocks": 11,
+      "solver_blocks": 15,
+      "elapsed_sec": 66.89,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.363636,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.363636,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_7_5",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 5,
+      "baseline_blocks": 72,
+      "solver_blocks": 86,
+      "elapsed_sec": 106.365827,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.194444,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.194444,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_18_7_7_6",
+      "n": 18,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 654,
+      "solver_blocks": 946,
+      "elapsed_sec": 96.64513,
+      "solver_verified": true,
+      "quality_ratio_to_baseline": 1.446483,
+      "family": "j_eq_k_noncontain_medium_n",
+      "relative_error_vs_baseline": 0.446483,
+      "within_120s": true,
+      "quality_within_10pct": false,
+      "compliant": false,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    }
+  ]
+}

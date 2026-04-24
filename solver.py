@@ -645,6 +645,9 @@ class CoveringDesignSolver:
     def solve(self) -> SolverResult:
         if self._identity_cover:
             return self._solve_identity_cover()
+        exact_small = self._solve_small_exact_cover()
+        if exact_small is not None:
+            return exact_small
 
         best: list[int] | None = None
         base_attempts = self._effective_attempts()
@@ -787,12 +790,121 @@ class CoveringDesignSolver:
             best = self._phase_e_mid_compact_search(best)
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
+            best = self._phase_g_nlt16_fixed_size_polish(best)
+            best = self._phase_h_nlt16_cp_sat_refine(best)
 
         masks = best or []
         return SolverResult(
             groups=[sorted(mask_to_elements(m)) for m in masks],
             elapsed=time.time() - self._t0,
             verified=False if self._skip_final_verify else self._verify(masks),
+            first_legal_elapsed=self._first_legal_elapsed,
+        )
+
+    def _should_use_small_exact_cover(self) -> bool:
+        if cp_model is None:
+            return False
+        if self.n >= 12:
+            return False
+        if self._cov_table is None or self._inv_table is None:
+            return False
+        if self.num_cands > 600 or self.num_targets > 600:
+            return False
+        return True
+
+    def _small_exact_time_budget(self) -> float:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return 12.0
+        if remaining <= 0.8:
+            return 0.0
+        return max(1.0, min(12.0, remaining * 0.5))
+
+    def _solve_small_exact_cover(self) -> SolverResult | None:
+        if not self._should_use_small_exact_cover():
+            return None
+
+        budget = self._small_exact_time_budget()
+        if budget <= 0.0:
+            return None
+
+        assert cp_model is not None
+        assert self._inv_table is not None
+
+        self._report(
+            "optimize",
+            (
+                "Small-n exact module: "
+                f"L({self.n},{self.k},{self.j},{self.s}), "
+                f"targets={self.num_targets}, cands={self.num_cands}, "
+                f"budget={budget:.1f}s"
+            ),
+        )
+
+        seed_strategy = GreedyStrategy(
+            name="small-exact-seed",
+            coverage_weight=1.0,
+            rarity_weight=0.2,
+            randomize=False,
+            spread_tiebreak=True,
+        )
+        seed_sol, complete, _ = self._greedy(seed_strategy)
+        seed_masks: list[int] = []
+        if complete:
+            seed_sol = self._local_search(seed_sol)
+            if seed_sol:
+                seed_masks = list(seed_sol)
+
+        model = cp_model.CpModel()
+        vars_x = [model.NewBoolVar(f"x_{i}") for i in range(self.num_cands)]
+        objective = sum(vars_x)
+
+        for ti, inv in enumerate(self._inv_table):
+            if len(inv) == 0:
+                self._report("optimize", f"Small-n exact skipped: uncovered target {ti}")
+                return None
+            model.Add(sum(vars_x[int(ci)] for ci in inv) >= 1)
+
+        if seed_masks:
+            seed_limit = len(seed_masks)
+            model.Add(objective <= seed_limit)
+            for mask in seed_masks:
+                ci = self._cand_index_map.get(int(mask))
+                if ci is not None:
+                    model.AddHint(vars_x[ci], 1)
+
+        model.Minimize(objective)
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = float(budget)
+        solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+        solver.parameters.random_seed = 0
+
+        status = solver.Solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            self._report("optimize", "Small-n exact module returned no feasible solution")
+            return None
+
+        picked_idx = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+        if not picked_idx:
+            return None
+
+        masks = [int(self.cand_masks[i]) for i in picked_idx]
+        masks = self._local_search(masks)
+        if not self._verify(masks):
+            return None
+
+        self._note_legal_solution()
+        proven = "optimal" if status == cp_model.OPTIMAL else "feasible"
+        self._report(
+            "optimize",
+            f"Small-n exact module ({proven}) found {len(masks)} groups",
+        )
+
+        return SolverResult(
+            groups=[sorted(mask_to_elements(m)) for m in masks],
+            elapsed=time.time() - self._t0,
+            verified=False if self._skip_final_verify else True,
             first_legal_elapsed=self._first_legal_elapsed,
         )
 
@@ -875,6 +987,13 @@ class CoveringDesignSolver:
         return min(5, max(base_attempts, min_profiles))
 
     def _phase_a_hard_attempt_cap(self, base_attempts: int, profile_attempts: int) -> int:
+        if (
+            self._deadline_at is not None
+            and self.n < 16
+            and self._interaction_scale <= 120_000_000
+        ):
+            max_cap = 16
+            return max(profile_attempts, min(max_cap, base_attempts + 12))
         if self._deadline_at is not None and self._is_large_j_equals_k_noncontainment():
             max_cap = 20
             return max(profile_attempts, min(max_cap, base_attempts + 18))
@@ -922,6 +1041,8 @@ class CoveringDesignSolver:
         remaining = self._time_remaining_sec()
         if remaining is None:
             return False
+        if self.n < 16:
+            return remaining <= 0.35
         if self._is_mid_j_equals_k_noncontainment() and self.num_targets > 12_000 and remaining <= 12.0:
             return True
         if remaining <= 0.15:
@@ -1052,7 +1173,7 @@ class CoveringDesignSolver:
         return (
             not self._containment
             and self.j == self.k
-            and 8_000 <= self.num_targets < 70_000
+            and 400 <= self.num_targets < 70_000
         )
 
     def _build_attempt_profiles(self, num_attempts: int) -> list[GreedyStrategy]:
@@ -2205,7 +2326,8 @@ class CoveringDesignSolver:
             return sol
         if self._cov_table is None:
             return sol
-        if len(sol) < 24:
+        min_len = 12 if (self.n < 16 and self.j == self.k and not self._containment) else 24
+        if len(sol) < min_len:
             return sol
         if not self._phase_c_has_time(6.0):
             return sol
@@ -2274,7 +2396,8 @@ class CoveringDesignSolver:
             return sol
         if self._deadline_at is None:
             return sol
-        if len(sol) < 24:
+        min_len = 12 if (self.n < 16 and self.j == self.k and not self._containment) else 24
+        if len(sol) < min_len:
             return sol
         if not self._phase_c_has_time(8.0):
             return sol
@@ -2365,7 +2488,8 @@ class CoveringDesignSolver:
             return sol
         if self._deadline_at is None:
             return sol
-        if len(sol) < 16:
+        min_len = 10 if (self.n < 16 and self.j == self.k and not self._containment) else 16
+        if len(sol) < min_len:
             return sol
 
         remaining = self._time_remaining_sec()
@@ -2399,7 +2523,8 @@ class CoveringDesignSolver:
                 model.AddHint(vars_x[idx], 1)
 
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = float(min(20.0, max(1.5, remaining - 0.8)))
+            iter_cap = 8.0 if (self.n < 16 and self.j == self.k and not self._containment) else 20.0
+            solver.parameters.max_time_in_seconds = float(min(iter_cap, max(1.5, remaining - 0.8)))
             solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
             solver.parameters.random_seed = 1
             status = solver.Solve(model)
@@ -2575,6 +2700,420 @@ class CoveringDesignSolver:
             )
             return candidate
         return sol
+
+    def _phase_g_nlt16_fixed_size_polish(self, sol: list[int]) -> list[int]:
+        if self.n >= 16:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        best = list(sol)
+        miss_count = 0
+        while True:
+            remaining = self._time_remaining_sec()
+            if remaining is None or remaining < 3.0:
+                break
+            target_len = len(best) - 1
+            if target_len < 1:
+                break
+
+            # Keep each round bounded so we can try multiple target lengths.
+            hard_case = (
+                (self.j == self.k and not self._containment)
+                or (self._containment and self.k >= 6)
+            )
+            ratio = 0.30 if hard_case else 0.22
+            cap = 28.0 if hard_case else 18.0
+            round_budget = float(min(cap, max(4.0, remaining * ratio)))
+
+            start_masks = list(best)
+            if miss_count > 0:
+                random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None:
+                miss_count += 1
+                if remaining < 8.0 or miss_count >= 4:
+                    break
+                continue
+            miss_count = 0
+            best = improved
+            self._report(
+                "optimize",
+                f"Phase-G fixed-size improved to {len(best)} groups",
+            )
+        return best
+
+    def _phase_g_try_target_len(
+        self,
+        start_masks: list[int],
+        target_len: int,
+        budget_sec: float,
+    ) -> list[int] | None:
+        cov_table = self._cov_table
+        inv_table = self._inv_table
+        assert cov_table is not None and inv_table is not None
+
+        cand_index = self._cand_index_map
+        start_idx = [cand_index[m] for m in start_masks if m in cand_index]
+        if len(start_idx) != len(start_masks):
+            return None
+        if len(start_idx) <= target_len:
+            return None
+
+        def _coverage_counts(selected_idx: list[int]) -> np.ndarray:
+            counts = np.zeros(self.num_targets, dtype=np.int32)
+            for ci in selected_idx:
+                counts[cov_table[ci]] += 1
+            return counts
+
+        def _trim_to_target(selected_idx: list[int]) -> tuple[list[int], np.ndarray]:
+            work = list(selected_idx)
+            counts = _coverage_counts(work)
+            while len(work) > target_len:
+                best_pos = 0
+                best_score: tuple[int, int] | None = None
+                for pos, ci in enumerate(work):
+                    covered = cov_table[ci]
+                    unique_loss = int(np.sum(counts[covered] == 1))
+                    score = (unique_loss, len(covered))
+                    if best_score is None or score < best_score:
+                        best_score = score
+                        best_pos = pos
+                removed = work.pop(best_pos)
+                counts[cov_table[removed]] -= 1
+            return work, counts
+
+        deadline = time.time() + max(0.1, budget_sec)
+        base_sel, base_counts = _trim_to_target(start_idx)
+        if int(np.sum(base_counts == 0)) == 0:
+            candidate = [int(self.cand_masks[ci]) for ci in base_sel]
+            if self._verify(candidate):
+                return candidate
+
+        max_restarts = 20 if target_len >= 80 else 14
+        max_steps = 2600 if target_len >= 80 else 1600
+        if target_len < 20:
+            max_restarts = 64
+            max_steps = 5400
+            top_k = 80 if self.num_cands >= 2000 else 56
+            sample_size = 12
+        elif target_len < 40:
+            max_restarts = 42
+            max_steps = 4200
+            top_k = 104 if self.num_cands >= 2000 else 72
+            sample_size = 16
+        elif target_len >= 150:
+            max_restarts = max(max_restarts, 28)
+            max_steps = max(max_steps, 3200)
+            top_k = 192
+            sample_size = 36
+        elif target_len >= 80:
+            top_k = 144 if self.num_cands >= 2000 else 96
+            sample_size = 30
+        else:
+            top_k = 96 if self.num_cands >= 2000 else 64
+            sample_size = 20
+        weight = self._target_weights
+        dynamic_weight = weight.astype(np.float64, copy=True)
+
+        for restart in range(max_restarts):
+            if time.time() >= deadline or self._cancel():
+                break
+            selected = list(base_sel)
+            counts = base_counts.copy()
+            selected_set = set(selected)
+
+            # Diversify each restart with a few random swaps.
+            perturb = min(4, max(1, target_len // 35))
+            for _ in range(perturb):
+                if time.time() >= deadline:
+                    break
+                drop_pos = random.randrange(len(selected))
+                dropped = selected.pop(drop_pos)
+                selected_set.remove(dropped)
+                counts[cov_table[dropped]] -= 1
+
+                uncovered = np.flatnonzero(counts == 0)
+                if len(uncovered) == 0:
+                    selected.append(dropped)
+                    selected_set.add(dropped)
+                    counts[cov_table[dropped]] += 1
+                    continue
+
+                scores = np.zeros(self.num_cands, dtype=np.float64)
+                for ti in uncovered:
+                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
+                if selected_set:
+                    scores[list(selected_set)] = -1e18
+                if np.max(scores) <= 0:
+                    add_ci = dropped
+                else:
+                    k = min(top_k, self.num_cands)
+                    top = np.argpartition(scores, -k)[-k:]
+                    top = top[scores[top] > 0]
+                    if len(top) == 0:
+                        add_ci = int(np.argmax(scores))
+                    else:
+                        add_ci = int(random.choice(top.tolist()))
+                selected.append(add_ci)
+                selected_set.add(add_ci)
+                counts[cov_table[add_ci]] += 1
+
+            unc = int(np.sum(counts == 0))
+            best_unc = unc
+            no_improve = 0
+            tabu_drop_until: dict[int, int] = {}
+            tabu_add_until: dict[int, int] = {}
+            tabu_tenure = 9 if target_len >= 80 else 7
+
+            for iter_idx in range(max_steps):
+                if time.time() >= deadline or self._cancel():
+                    break
+                if unc == 0:
+                    candidate = [int(self.cand_masks[ci]) for ci in selected]
+                    if self._verify(candidate):
+                        return candidate
+                    break
+
+                pick_n = min(sample_size, len(selected))
+                sampled_pos = random.sample(range(len(selected)), pick_n)
+                drop_pos = sampled_pos[0]
+                drop_score: float | None = None
+                for pos in sampled_pos:
+                    ci = selected[pos]
+                    tabu_until = tabu_drop_until.get(ci)
+                    if tabu_until is not None and tabu_until > iter_idx:
+                        continue
+                    covered = cov_table[ci]
+                    unique_loss = int(np.sum(counts[covered] == 1))
+                    score = float(unique_loss) + random.random() * 2.0
+                    if drop_score is None or score < drop_score:
+                        drop_score = score
+                        drop_pos = pos
+
+                dropped = selected.pop(drop_pos)
+                selected_set.remove(dropped)
+                counts[cov_table[dropped]] -= 1
+
+                uncovered = np.flatnonzero(counts == 0)
+                scores = np.zeros(self.num_cands, dtype=np.float64)
+                for ti in uncovered:
+                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
+                if selected_set:
+                    scores[list(selected_set)] = -1e18
+
+                if np.max(scores) <= 0:
+                    add_ci = dropped
+                else:
+                    k = min(top_k, self.num_cands)
+                    top = np.argpartition(scores, -k)[-k:]
+                    top = top[scores[top] > 0]
+                    if len(top) == 0:
+                        add_ci = int(np.argmax(scores))
+                    else:
+                        ordered = top[np.argsort(scores[top])[::-1]]
+                        add_ci = int(ordered[0])
+                        for cand in ordered[:24]:
+                            cand_i = int(cand)
+                            tabu_until = tabu_add_until.get(cand_i)
+                            if tabu_until is None or tabu_until <= iter_idx:
+                                add_ci = cand_i
+                                break
+                        if random.random() >= 0.78:
+                            sample_pool = [int(x) for x in ordered[: max(3, min(12, len(ordered)))]]
+                            random.shuffle(sample_pool)
+                            for cand_i in sample_pool:
+                                tabu_until = tabu_add_until.get(cand_i)
+                                if tabu_until is None or tabu_until <= iter_idx:
+                                    add_ci = cand_i
+                                    break
+
+                selected.append(add_ci)
+                selected_set.add(add_ci)
+                counts[cov_table[add_ci]] += 1
+                tabu_drop_until[dropped] = iter_idx + tabu_tenure
+                tabu_add_until[add_ci] = iter_idx + tabu_tenure
+
+                new_unc = int(np.sum(counts == 0))
+                if new_unc < best_unc:
+                    best_unc = new_unc
+                    no_improve = 0
+                    dynamic_weight = np.maximum(weight, dynamic_weight * 0.92)
+                else:
+                    no_improve += 1
+                    if (iter_idx + 1) % 32 == 0:
+                        unc_idx = np.flatnonzero(counts == 0)
+                        if len(unc_idx) > 0:
+                            dynamic_weight[unc_idx] = np.minimum(
+                                dynamic_weight[unc_idx] * 1.08,
+                                weight[unc_idx] * 6.0,
+                            )
+                unc = new_unc
+
+                if no_improve >= 240:
+                    break
+
+        return None
+
+    def _phase_h_nlt16_cp_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self.n >= 16:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 5.0:
+            return sol
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        ranked_scores = self._base_weighted_scores
+        if ranked_scores is None:
+            if self._cov_table is None:
+                return sol
+            ranked_scores = np.array([len(c) for c in self._cov_table], dtype=np.float64)
+
+        if self.j == self.k and not self._containment:
+            extras_cap = 2800
+        elif self._containment:
+            extras_cap = 2400
+        else:
+            extras_cap = 2000
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        target_ub = best_len - 1
+        selected_set = set(selected_indices)
+
+        while target_ub >= 1:
+            remaining = self._time_remaining_sec()
+            if remaining is None or remaining < 4.0:
+                break
+
+            ranked = np.argsort(ranked_scores)[::-1]
+            max_extra = max(0, self.num_cands - len(selected_indices))
+            if max_extra <= 0:
+                break
+
+            # 小规模和小组数实例优先直接扩到全候选，避免精修被门槛挡住。
+            if len(best_masks) <= 14 or self.num_targets <= 1800:
+                extra_levels = [max_extra]
+            else:
+                growth = [
+                    min(max_extra, extras_cap),
+                    min(max_extra, int(extras_cap * 1.45) + 260),
+                    min(max_extra, int(extras_cap * 2.05) + 640),
+                    max_extra,
+                ]
+                extra_levels = []
+                for g in growth:
+                    gg = int(max(0, g))
+                    if gg not in extra_levels:
+                        extra_levels.append(gg)
+
+            found = False
+            for extra_cap in extra_levels:
+                run_remaining = self._time_remaining_sec()
+                if run_remaining is None or run_remaining < 3.0:
+                    break
+
+                neighborhood = list(selected_indices)
+                if extra_cap > 0:
+                    for ci in ranked:
+                        cii = int(ci)
+                        if cii in selected_set:
+                            continue
+                        neighborhood.append(cii)
+                        if len(neighborhood) >= len(selected_indices) + extra_cap:
+                            break
+                if len(neighborhood) <= len(selected_indices):
+                    continue
+
+                local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
+                model = cp_model.CpModel()
+                vars_x = [model.NewBoolVar(f"xh_{i}") for i in range(len(neighborhood))]
+                model.Add(sum(vars_x) <= target_ub)
+
+                missing_cover = False
+                for covering in self._inv_table:
+                    loc = [local_pos[int(ci)] for ci in covering if int(ci) in local_pos]
+                    if not loc:
+                        missing_cover = True
+                        break
+                    model.AddBoolOr([vars_x[i] for i in loc])
+                if missing_cover:
+                    continue
+
+                for ci in selected_indices:
+                    p = local_pos.get(ci)
+                    if p is not None:
+                        model.AddHint(vars_x[p], 1)
+
+                seeds = [1, 17]
+                if run_remaining >= 16.0:
+                    seeds.append(29)
+                if extra_cap >= max_extra and run_remaining >= 9.0:
+                    seeds.append(47)
+                per_run = max(
+                    2.0,
+                    min(10.0, (run_remaining - 0.8) / max(1, len(seeds))),
+                )
+
+                for seed in seeds:
+                    seed_remaining = self._time_remaining_sec()
+                    if seed_remaining is None or seed_remaining < 2.0:
+                        break
+                    solver = cp_model.CpSolver()
+                    solver.parameters.max_time_in_seconds = float(
+                        min(per_run, max(1.5, seed_remaining - 0.7))
+                    )
+                    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                    solver.parameters.random_seed = seed
+                    status = solver.Solve(model)
+                    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                        continue
+
+                    picked_local = [i for i in range(len(neighborhood)) if solver.Value(vars_x[i]) == 1]
+                    if len(picked_local) >= best_len:
+                        continue
+
+                    picked_global = [neighborhood[i] for i in picked_local]
+                    candidate = [int(self.cand_masks[i]) for i in picked_global]
+                    if not self._verify(candidate):
+                        continue
+
+                    best_masks = candidate
+                    best_len = len(best_masks)
+                    target_ub = best_len - 1
+                    selected_indices = picked_global
+                    selected_set = set(selected_indices)
+                    found = True
+                    self._report(
+                        "optimize",
+                        f"Phase-H CP-SAT refined to {best_len} groups",
+                    )
+                    break
+
+                if found:
+                    break
+
+            if not found:
+                break
+
+        return best_masks
 
     def _destroy_repair_order(self, sol: list[int]) -> list[int]:
         cov_count = np.zeros(self.num_targets, dtype=np.int32)
