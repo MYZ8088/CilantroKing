@@ -819,6 +819,18 @@ class CoveringDesignSolver:
             best = self._phase_e_mid_compact_search(best)
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
+            
+            # CP-SAT 对于大规模问题效果不好，暂时禁用
+            # if self._should_try_cpsat(best):
+            #     cpsat_result = self._cpsat_solve(best)
+            #     if cpsat_result and len(cpsat_result) < len(best):
+            #         best = cpsat_result
+            
+            # 尝试遗传算法改进
+            if self._should_try_genetic_algorithm(best):
+                ga_result = self._genetic_algorithm_improve(best)
+                if ga_result and len(ga_result) < len(best):
+                    best = ga_result
 
         masks = best or []
         return SolverResult(
@@ -3001,3 +3013,160 @@ class CoveringDesignSolver:
         if self._target_has_elem is None:
             return None
         return self._target_has_elem[uncovered].sum(axis=0, dtype=np.int64)
+
+    # ------------------------------------------------------------------
+    # CP-SAT Solver
+    # ------------------------------------------------------------------
+
+    def _should_try_cpsat(self, solution: list[int]) -> bool:
+        """判断是否应该尝试 CP-SAT"""
+        # 只对 j=k 的问题使用
+        if self.j != self.k:
+            return False
+        # 只对 n>12 的问题使用
+        if self.n <= 12:
+            return False
+        # 只对非包含覆盖问题使用
+        if self._containment:
+            return False
+        # 需要有覆盖表
+        if self._cov_table is None:
+            return False
+        # 解的大小要合理
+        if len(solution) < 10 or len(solution) > 100:
+            return False
+        # 限制问题规模（避免 CP-SAT 构建模型太慢）
+        if self.num_cands > 2000 or self.num_targets > 2000:
+            return False
+        # 需要有剩余时间
+        remaining = self._time_remaining_sec()
+        if remaining is not None and remaining < 30.0:
+            return False
+        return True
+
+    def _cpsat_solve(self, initial_solution: list[int]) -> list[int] | None:
+        """使用 CP-SAT 求解"""
+        try:
+            from cpsat_solver import CPSATSolver
+            
+            # 计算时间预算
+            remaining = self._time_remaining_sec()
+            if remaining is not None:
+                time_limit = min(60.0, remaining * 0.4)
+            else:
+                time_limit = 60.0
+            
+            self._report("cpsat", f"尝试 CP-SAT 求解 (时间限制 {time_limit:.1f}s)")
+            
+            # 创建 CP-SAT 求解器
+            cpsat_solver = CPSATSolver(
+                cand_masks=self.cand_masks,
+                target_masks=self.target_masks,
+                s=self.s,
+                cov_table=self._cov_table,
+                cancel_fn=self._cancel,
+                progress_fn=lambda msg: self._report("cpsat", msg),
+            )
+            
+            # 运行 CP-SAT
+            result = cpsat_solver.solve(
+                initial_solution=initial_solution,
+                time_limit=time_limit,
+            )
+            
+            if result and len(result) < len(initial_solution):
+                self._report("cpsat", f"CP-SAT 改进: {len(initial_solution)} → {len(result)} 组")
+                return result
+            else:
+                self._report("cpsat", "CP-SAT 未找到更好的解")
+                return None
+        
+        except ImportError:
+            self._report("cpsat", "CP-SAT 不可用（需要安装 ortools）")
+            return None
+        except Exception as e:
+            self._report("cpsat", f"CP-SAT 失败: {e}")
+            return None
+
+    # ------------------------------------------------------------------
+    # Genetic Algorithm
+    # ------------------------------------------------------------------
+
+    def _should_try_genetic_algorithm(self, solution: list[int]) -> bool:
+        """判断是否应该尝试遗传算法"""
+        # 只对 j=k 且 n>12 的问题使用
+        if self.j != self.k:
+            return False
+        if self.n <= 12:
+            return False
+        # 只对非包含覆盖问题使用
+        if self._containment:
+            return False
+        # 需要有覆盖表
+        if self._cov_table is None or self._inv_table is None:
+            return False
+        # 解的大小要合理（不要太小或太大）
+        if len(solution) < 10 or len(solution) > 200:
+            return False
+        # 需要有剩余时间
+        remaining = self._time_remaining_sec()
+        if remaining is not None and remaining < 20.0:
+            return False
+        return True
+
+    def _genetic_algorithm_improve(self, solution: list[int]) -> list[int] | None:
+        """使用遗传算法改进解"""
+        try:
+            from genetic_solver import GeneticSolver
+            
+            # 计算时间预算
+            remaining = self._time_remaining_sec()
+            if remaining is not None:
+                time_budget = min(30.0, remaining * 0.5)
+            else:
+                time_budget = 30.0
+            
+            # 根据问题规模调整参数
+            # 对于 j=k 的情况，增加种群和代数以获得更好的解
+            if self.n <= 15:
+                pop_size = 30
+                generations = 80
+            elif self.n <= 18:
+                pop_size = 25
+                generations = 60
+            else:
+                pop_size = 20
+                generations = 50
+            
+            self._report("ga", f"尝试遗传算法改进 (j=k 专用, 预算 {time_budget:.1f}s)")
+            
+            # 创建遗传算法求解器
+            ga_solver = GeneticSolver(
+                cand_masks=self.cand_masks,
+                target_masks=self.target_masks,
+                s=self.s,
+                cov_table=self._cov_table,
+                inv_table=self._inv_table,
+                verify_fn=self._verify,
+                cancel_fn=self._cancel,
+                progress_fn=lambda msg: self._report("ga", msg),
+            )
+            
+            # 运行遗传算法
+            result = ga_solver.solve(
+                initial_solution=solution,
+                time_budget=time_budget,
+                pop_size=pop_size,
+                generations=generations,
+            )
+            
+            if result and len(result) < len(solution):
+                self._report("ga", f"遗传算法改进: {len(solution)} → {len(result)} 组")
+                return result
+            else:
+                self._report("ga", "遗传算法未找到更好的解")
+                return None
+        
+        except Exception as e:
+            self._report("ga", f"遗传算法失败: {e}")
+            return None
