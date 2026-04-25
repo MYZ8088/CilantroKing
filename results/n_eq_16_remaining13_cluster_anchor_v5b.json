@@ -1,0 +1,205 @@
+{
+  "generated_at": "2026-04-25 12:54:52",
+  "source": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_after_anchor_v5b_no_cpsat_full.json",
+  "total": 29,
+  "compliant": 16,
+  "non_compliant": 13,
+  "clusters": {
+    "C1_light_containment": {
+      "count": 1,
+      "avg_gap": 0.107692,
+      "max_gap": 0.107692,
+      "avg_elapsed_sec": 7.090883,
+      "cases": [
+        {
+          "id": "L_16_5_3_3",
+          "k": 5,
+          "j": 3,
+          "s": 3,
+          "family": "containment_s_eq_j",
+          "solver_blocks": 72,
+          "baseline_blocks": 65,
+          "gap_ratio": 0.107692,
+          "elapsed_sec": 7.090883,
+          "delta_vs_iter2_gap": -0.015385
+        }
+      ]
+    },
+    "C1_light_j_eq_k": {
+      "count": 2,
+      "avg_gap": 0.153409,
+      "max_gap": 0.181818,
+      "avg_elapsed_sec": 77.512834,
+      "cases": [
+        {
+          "id": "L_16_5_5_4",
+          "k": 5,
+          "j": 5,
+          "s": 4,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 156,
+          "baseline_blocks": 132,
+          "gap_ratio": 0.181818,
+          "elapsed_sec": 112.084971,
+          "delta_vs_iter2_gap": -0.030303
+        },
+        {
+          "id": "L_16_4_4_3",
+          "k": 4,
+          "j": 4,
+          "s": 3,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 72,
+          "baseline_blocks": 64,
+          "gap_ratio": 0.125,
+          "elapsed_sec": 42.940697,
+          "delta_vs_iter2_gap": -0.015625
+        }
+      ]
+    },
+    "C2_hard_j_eq_k_dense": {
+      "count": 4,
+      "avg_gap": 0.209247,
+      "max_gap": 0.269625,
+      "avg_elapsed_sec": 108.581566,
+      "cases": [
+        {
+          "id": "L_16_7_7_6",
+          "k": 7,
+          "j": 7,
+          "s": 6,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 372,
+          "baseline_blocks": 293,
+          "gap_ratio": 0.269625,
+          "elapsed_sec": 112.39676,
+          "delta_vs_iter2_gap": -0.017064
+        },
+        {
+          "id": "L_16_7_7_5",
+          "k": 7,
+          "j": 7,
+          "s": 5,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 38,
+          "baseline_blocks": 31,
+          "gap_ratio": 0.225806,
+          "elapsed_sec": 114.011436,
+          "delta_vs_iter2_gap": -0.129033
+        },
+        {
+          "id": "L_16_6_6_5",
+          "k": 6,
+          "j": 6,
+          "s": 5,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 262,
+          "baseline_blocks": 223,
+          "gap_ratio": 0.174888,
+          "elapsed_sec": 101.996682,
+          "delta_vs_iter2_gap": -0.053812
+        },
+        {
+          "id": "L_16_7_7_4",
+          "k": 7,
+          "j": 7,
+          "s": 4,
+          "family": "j_eq_k_noncontain_medium_n",
+          "solver_blocks": 7,
+          "baseline_blocks": 6,
+          "gap_ratio": 0.166667,
+          "elapsed_sec": 105.921386,
+          "delta_vs_iter2_gap": 0.0
+        }
+      ]
+    },
+    "C3_hard_containment_dense": {
+      "count": 3,
+      "avg_gap": 0.198516,
+      "max_gap": 0.240283,
+      "avg_elapsed_sec": 95.909001,
+      "cases": [
+        {
+          "id": "L_16_7_5_5",
+          "k": 7,
+          "j": 5,
+          "s": 5,
+          "family": "containment_s_eq_j",
+          "solver_blocks": 351,
+          "baseline_blocks": 283,
+          "gap_ratio": 0.240283,
+          "elapsed_sec": 111.65898,
+          "delta_vs_iter2_gap": -0.035335
+        },
+        {
+          "id": "L_16_6_4_4",
+          "k": 6,
+          "j": 4,
+          "s": 4,
+          "family": "containment_s_eq_j",
+          "solver_blocks": 180,
+          "baseline_blocks": 152,
+          "gap_ratio": 0.184211,
+          "elapsed_sec": 94.065755,
+          "delta_vs_iter2_gap": -0.065789
+        },
+        {
+          "id": "L_16_7_4_4",
+          "k": 7,
+          "j": 4,
+          "s": 4,
+          "family": "containment_s_eq_j",
+          "solver_blocks": 89,
+          "baseline_blocks": 76,
+          "gap_ratio": 0.171053,
+          "elapsed_sec": 82.002268,
+          "delta_vs_iter2_gap": -0.065789
+        }
+      ]
+    },
+    "C4_hard_general_dense": {
+      "count": 3,
+      "avg_gap": 0.188645,
+      "max_gap": 0.269231,
+      "avg_elapsed_sec": 51.9695,
+      "cases": [
+        {
+          "id": "L_16_7_6_5",
+          "k": 7,
+          "j": 6,
+          "s": 5,
+          "family": "general_noncontain",
+          "solver_blocks": 99,
+          "baseline_blocks": 78,
+          "gap_ratio": 0.269231,
+          "elapsed_sec": 49.19874,
+          "delta_vs_iter2_gap": -0.076923
+        },
+        {
+          "id": "L_16_6_5_4",
+          "k": 6,
+          "j": 5,
+          "s": 4,
+          "family": "general_noncontain",
+          "solver_blocks": 60,
+          "baseline_blocks": 52,
+          "gap_ratio": 0.153846,
+          "elapsed_sec": 20.358073,
+          "delta_vs_iter2_gap": -0.076923
+        },
+        {
+          "id": "L_16_7_5_4",
+          "k": 7,
+          "j": 5,
+          "s": 4,
+          "family": "general_noncontain",
+          "solver_blocks": 32,
+          "baseline_blocks": 28,
+          "gap_ratio": 0.142857,
+          "elapsed_sec": 86.351687,
+          "delta_vs_iter2_gap": -0.035714
+        }
+      ]
+    }
+  }
+}

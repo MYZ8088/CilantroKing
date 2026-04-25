@@ -30,6 +30,7 @@ from typing import Callable
 import numpy as np
 
 from identity_cover_module import build_identity_cover
+from n16_specialized_module import run_n16_case_specialized_module
 from n15_specialized_module import is_n15_special_case, run_n15_specialized_module
 
 
@@ -420,6 +421,7 @@ class CoveringDesignSolver:
         self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
         self._n16_anchor_module_enabled = bool(_env_int("CK_N16_ANCHOR_MODULE", 0))
+        self._n16_case_module_enabled = bool(_env_int("CK_N16_CASE_MODULE", 1))
         self._n15_hardcase_module_enabled = bool(_env_int("CK_N15_HARDCASE_MODULE", 1))
 
         if not 7 <= n <= 25:
@@ -465,6 +467,10 @@ class CoveringDesignSolver:
         self._gpu_failed = False
         self._cand_masks_gpu = None
         self._target_masks_gpu = None
+        self._gpu_batch_min_cands = max(1, _env_int("CK_GPU_BATCH_MIN_CANDS", 128))
+        self._gpu_batch_min_targets = max(1, _env_int("CK_GPU_BATCH_MIN_TARGETS", 512))
+        self._gpu_weighted_min_cands = max(1, _env_int("CK_GPU_WEIGHTED_MIN_CANDS", 1024))
+        self._gpu_weighted_min_targets = max(1, _env_int("CK_GPU_WEIGHTED_MIN_TARGETS", 768))
         self._cov_table: list[np.ndarray] | None = None
         self._inv_table: list[np.ndarray] | None = None
         self._jsub_table: np.ndarray | None = None
@@ -819,6 +825,7 @@ class CoveringDesignSolver:
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
             best = self._phase_n16_anchor_module_dispatch(best)
+            best = self._phase_n16_case_module_dispatch(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
             best = self._phase_k_cluster_structural_refine(best)
             best = self._phase_h_nlt16_cp_sat_refine(best)
@@ -826,6 +833,8 @@ class CoveringDesignSolver:
             best = self._phase_h_nlt16_cp_sat_refine(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
             best = self._phase_k_cluster_structural_refine(best)
+            best = self._phase_n16_case_module_dispatch(best)
+            best = self._phase_n15_hardcase_module_dispatch(best)
             if self.n < 16 and self._deadline_at is not None:
                 for _ in range(2):
                     rem = self._time_remaining_sec()
@@ -837,7 +846,6 @@ class CoveringDesignSolver:
                     best = self._phase_k_cluster_structural_refine(best)
                     if len(best) >= before:
                         break
-            best = self._phase_n15_hardcase_module_dispatch(best)
 
         masks = best or []
         return SolverResult(
@@ -1096,20 +1104,6 @@ class CoveringDesignSolver:
     def _phase_a_reserved_polish_budget(self) -> float:
         if self.n > 16:
             return 0.0
-        if (
-            self.n < 16
-            and self._n15_hardcase_module_enabled
-            and is_n15_special_case(self.n, self.k, self.j, self.s)
-        ):
-            if self.j == self.k and not self._containment:
-                if self.num_targets >= 3_000:
-                    return 42.0
-                return 34.0
-            if self._containment:
-                if self.num_targets >= 3_000:
-                    return 30.0
-                return 24.0
-            return 20.0
         if self.n == 16:
             if not self._is_n16_hard_cluster():
                 return 0.0
@@ -1389,13 +1383,21 @@ class CoveringDesignSolver:
         if self._deadline_at is None:
             return sol
         remaining = self._time_remaining_sec()
-        if remaining is None or remaining < 6.0:
+        if remaining is None or remaining < 3.0:
             return sol
-        rng_state = random.getstate()
-        try:
-            return run_n15_specialized_module(self, sol)
-        finally:
-            random.setstate(rng_state)
+        return run_n15_specialized_module(self, sol)
+
+    def _phase_n16_case_module_dispatch(self, sol: list[int]) -> list[int]:
+        if not self._n16_case_module_enabled:
+            return sol
+        if self.n != 16:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 3.5:
+            return sol
+        return run_n16_case_specialized_module(self, sol)
 
     def _phase_n16_anchor_module_dispatch(self, sol: list[int]) -> list[int]:
         if not self._n16_anchor_module_enabled:
@@ -2798,15 +2800,75 @@ class CoveringDesignSolver:
     # Batch scoring
     # ------------------------------------------------------------------
 
+    def _gpu_batch_gate(self, *, cands_len: int, targets_len: int) -> bool:
+        return bool(
+            self._gpu_enabled
+            and not self._gpu_failed
+            and cands_len >= self._gpu_batch_min_cands
+            and targets_len >= self._gpu_batch_min_targets
+        )
+
+    def _candidate_scores_from_uncovered(
+        self,
+        *,
+        uncovered: np.ndarray,
+        dynamic_weight: np.ndarray,
+        selected_set: set[int],
+    ) -> np.ndarray:
+        uncovered_idx = np.asarray(uncovered, dtype=np.int32)
+        scores = np.zeros(self.num_cands, dtype=np.float64)
+        if len(uncovered_idx) == 0:
+            if selected_set:
+                scores[list(selected_set)] = -1e18
+            return scores
+
+        use_gpu = (
+            self._gpu_active()
+            and self.num_cands >= self._gpu_weighted_min_cands
+            and len(uncovered_idx) >= self._gpu_weighted_min_targets
+            and (self.num_cands * len(uncovered_idx)) >= 2_000_000
+        )
+        if use_gpu:
+            try:
+                scores = self._batch_weighted_scores_gpu(
+                    cands=self.cand_masks,
+                    targets=self.target_masks[uncovered_idx],
+                    target_weights=dynamic_weight[uncovered_idx],
+                )
+            except Exception:
+                self._gpu_disable("GPU weighted-score path failed; falling back to CPU")
+                scores = self._candidate_scores_from_uncovered_cpu(
+                    uncovered_idx=uncovered_idx,
+                    dynamic_weight=dynamic_weight,
+                )
+        else:
+            scores = self._candidate_scores_from_uncovered_cpu(
+                uncovered_idx=uncovered_idx,
+                dynamic_weight=dynamic_weight,
+            )
+
+        if selected_set:
+            scores[list(selected_set)] = -1e18
+        return scores
+
+    def _candidate_scores_from_uncovered_cpu(
+        self,
+        *,
+        uncovered_idx: np.ndarray,
+        dynamic_weight: np.ndarray,
+    ) -> np.ndarray:
+        inv_table = self._inv_table
+        assert inv_table is not None
+        scores = np.zeros(self.num_cands, dtype=np.float64)
+        for ti in uncovered_idx:
+            tii = int(ti)
+            scores[inv_table[tii]] += float(dynamic_weight[tii])
+        return scores
+
     def _batch_scores(
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> np.ndarray:
-        if (
-            self._gpu_enabled
-            and not self._gpu_failed
-            and len(cands) >= 256
-            and len(targets) >= 1024
-        ):
+        if self._gpu_batch_gate(cands_len=len(cands), targets_len=len(targets)):
             try:
                 return self._batch_scores_gpu(cands, targets)
             except Exception:
@@ -2817,12 +2879,7 @@ class CoveringDesignSolver:
     def _batch_best(
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> tuple[int, int]:
-        if (
-            self._gpu_enabled
-            and not self._gpu_failed
-            and len(cands) >= 256
-            and len(targets) >= 1024
-        ):
+        if self._gpu_batch_gate(cands_len=len(cands), targets_len=len(targets)):
             try:
                 return self._batch_best_gpu(cands, targets)
             except Exception:
@@ -2880,8 +2937,18 @@ class CoveringDesignSolver:
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> np.ndarray:
         assert cp is not None
-        cands_gpu = cp.asarray(cands, dtype=cp.uint32)
-        targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+        if len(cands) == self.num_cands and np.shares_memory(cands, self.cand_masks):
+            self._ensure_gpu_mask_cache()
+            assert self._cand_masks_gpu is not None
+            cands_gpu = self._cand_masks_gpu
+        else:
+            cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+        if len(targets) == self.num_targets and np.shares_memory(targets, self.target_masks):
+            self._ensure_gpu_mask_cache()
+            assert self._target_masks_gpu is not None
+            targets_gpu = self._target_masks_gpu
+        else:
+            targets_gpu = cp.asarray(targets, dtype=cp.uint32)
         scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
 
         _, total_mem = cp.cuda.Device().mem_info
@@ -2917,8 +2984,18 @@ class CoveringDesignSolver:
         self, cands: np.ndarray, targets: np.ndarray,
     ) -> tuple[int, int]:
         assert cp is not None
-        cands_gpu = cp.asarray(cands, dtype=cp.uint32)
-        targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+        if len(cands) == self.num_cands and np.shares_memory(cands, self.cand_masks):
+            self._ensure_gpu_mask_cache()
+            assert self._cand_masks_gpu is not None
+            cands_gpu = self._cand_masks_gpu
+        else:
+            cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+        if len(targets) == self.num_targets and np.shares_memory(targets, self.target_masks):
+            self._ensure_gpu_mask_cache()
+            assert self._target_masks_gpu is not None
+            targets_gpu = self._target_masks_gpu
+        else:
+            targets_gpu = cp.asarray(targets, dtype=cp.uint32)
         scores_gpu = cp.zeros(len(cands), dtype=cp.int32)
 
         _, total_mem = cp.cuda.Device().mem_info
@@ -2952,6 +3029,56 @@ class CoveringDesignSolver:
         best_local = int(cp.argmax(scores_gpu).get())
         best_count = int(scores_gpu[best_local].get())
         return best_local, best_count
+
+    def _batch_weighted_scores_gpu(
+        self,
+        *,
+        cands: np.ndarray,
+        targets: np.ndarray,
+        target_weights: np.ndarray,
+    ) -> np.ndarray:
+        assert cp is not None
+        if len(cands) == self.num_cands and np.shares_memory(cands, self.cand_masks):
+            self._ensure_gpu_mask_cache()
+            assert self._cand_masks_gpu is not None
+            cands_gpu = self._cand_masks_gpu
+        else:
+            cands_gpu = cp.asarray(cands, dtype=cp.uint32)
+        targets_gpu = cp.asarray(targets, dtype=cp.uint32)
+        weights_gpu = cp.asarray(target_weights, dtype=cp.float32)
+        scores_gpu = cp.zeros(len(cands), dtype=cp.float32)
+
+        free_mem, _ = cp.cuda.Device().mem_info
+        budget = max(64 * 1024 * 1024, int(free_mem * 0.32))
+        approx_bytes_per_target = max(8, len(cands) * 8)
+        chunk = int(max(256, min(len(targets), max(1, budget // approx_bytes_per_target))))
+
+        for start in range(0, len(targets), chunk):
+            if self._cancel():
+                break
+            t_chunk = targets_gpu[start : start + chunk]
+            w_chunk = weights_gpu[start : start + chunk]
+            ints = cands_gpu[:, None] & t_chunk[None, :]
+            if self._containment:
+                hits = ints == t_chunk[None, :]
+            else:
+                x = cp.array(ints, dtype=cp.uint32, copy=True)
+                t = (x >> cp.uint32(1)) & cp.uint32(0x55555555)
+                x = x - t
+                t = x & cp.uint32(0x33333333)
+                x = (x >> cp.uint32(2)) & cp.uint32(0x33333333)
+                x = x + t
+                x = x + (x >> cp.uint32(4))
+                x = x & cp.uint32(0x0F0F0F0F)
+                x = x * cp.uint32(0x01010101)
+                x = x >> cp.uint32(24)
+                hits = x.astype(cp.int32) >= self.s
+            scores_gpu += cp.sum(
+                hits.astype(cp.float32) * w_chunk[None, :],
+                axis=1,
+                dtype=cp.float32,
+            )
+        return cp.asnumpy(scores_gpu).astype(np.float64, copy=False)
 
     def _gpu_hits(self, masks_gpu, targets_gpu):
         assert cp is not None
@@ -3580,8 +3707,7 @@ class CoveringDesignSolver:
         budget_sec: float,
     ) -> list[int] | None:
         cov_table = self._cov_table
-        inv_table = self._inv_table
-        assert cov_table is not None and inv_table is not None
+        assert cov_table is not None and self._inv_table is not None
 
         cand_index = self._cand_index_map
         start_idx = [cand_index[m] for m in start_masks if m in cand_index]
@@ -3670,11 +3796,11 @@ class CoveringDesignSolver:
                     counts[cov_table[dropped]] += 1
                     continue
 
-                scores = np.zeros(self.num_cands, dtype=np.float64)
-                for ti in uncovered:
-                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
-                if selected_set:
-                    scores[list(selected_set)] = -1e18
+                scores = self._candidate_scores_from_uncovered(
+                    uncovered=uncovered,
+                    dynamic_weight=dynamic_weight,
+                    selected_set=selected_set,
+                )
                 if np.max(scores) <= 0:
                     add_ci = dropped
                 else:
@@ -3726,11 +3852,11 @@ class CoveringDesignSolver:
                 counts[cov_table[dropped]] -= 1
 
                 uncovered = np.flatnonzero(counts == 0)
-                scores = np.zeros(self.num_cands, dtype=np.float64)
-                for ti in uncovered:
-                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
-                if selected_set:
-                    scores[list(selected_set)] = -1e18
+                scores = self._candidate_scores_from_uncovered(
+                    uncovered=uncovered,
+                    dynamic_weight=dynamic_weight,
+                    selected_set=selected_set,
+                )
 
                 if np.max(scores) <= 0:
                     add_ci = dropped

@@ -1,0 +1,89 @@
+{
+  "generated_at": "2026-04-25 22:36:30",
+  "config": {
+    "n_min": 14,
+    "n_max_exclusive": 15,
+    "timeout_sec": 120.0,
+    "hard_timeout_sec": 130.0,
+    "num_attempts": 3,
+    "quality_tolerance_ratio": 0.1,
+    "judge_rule": "compliant iff runtime<=120s AND solver_blocks<=baseline*1.10 AND solver_verified",
+    "ck_use_gpu": 1,
+    "ck_skip_gpu_probe": true,
+    "ck_n16_anchor_module": 0,
+    "ck_disable_cpsat": 0,
+    "ck_solver_module": "solver_n15_cluster_isolated",
+    "ck_use_gpu_n16": 1,
+    "ck_skip_gpu_probe_n16": 0,
+    "ck_n16_anchor_module_n16": 1,
+    "ck_disable_cpsat_n16": 1,
+    "ck_solver_module_n16": "solver_n16_isolated",
+    "n16_owned_routing": true,
+    "python_exe": "C:\\Users\\asus\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "workers": 1
+  },
+  "baseline_file": "results\\tmp_onecase_14_7_5_5_baseline.json",
+  "summary": {
+    "total_cases": 1,
+    "compliant_count": 0,
+    "non_compliant_count": 1,
+    "runtime_fail_count": 0,
+    "quality_fail_count": 1,
+    "verify_fail_count": 0,
+    "status_timeout_count": 0,
+    "status_error_count": 0,
+    "elapsed_total_sec": 102.721013
+  },
+  "reason_counter": {
+    "quality_over_10pct": 1
+  },
+  "by_n": [
+    {
+      "n": 14,
+      "total": 1,
+      "compliant": 0,
+      "non_compliant": 1,
+      "quality_fail": 1,
+      "runtime_fail": 0,
+      "verify_fail": 0,
+      "avg_gap_ratio": 0.101449,
+      "avg_elapsed_sec": 102.721013
+    }
+  ],
+  "elapsed_total_wall_sec": 103.250184,
+  "cases": [
+    {
+      "id": "L_14_7_5_5",
+      "n": 14,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "family": "containment_s_eq_j",
+      "baseline_blocks": 138,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05",
+      "status": "ok",
+      "solver_blocks": 152,
+      "gap_ratio": 0.101449,
+      "abs_gap_ratio": 0.101449,
+      "quality_ratio_to_baseline": 1.101449,
+      "elapsed_sec": 102.721013,
+      "first_legal_elapsed_sec": 55.812088,
+      "runtime_for_judge_sec": 102.721013,
+      "runtime_ok": true,
+      "quality_ok": false,
+      "solver_verified": true,
+      "solver_module": "solver_n15_cluster_isolated",
+      "solver_profile": "default",
+      "verified_ok": true,
+      "compliant": false,
+      "error": null,
+      "num_targets": 2002,
+      "num_cands": 3432,
+      "interaction_scale": 6870864,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    }
+  ]
+}
