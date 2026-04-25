@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26 00:09:40",
+  "generated_at": "2026-04-26 00:11:35",
   "config": {
     "n_min": 16,
     "n_max_exclusive": 17,
@@ -24,16 +24,33 @@
   },
   "baseline_file": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_remaining13_baseline_from_v6.json",
   "summary": {
-    "total_cases": 11,
+    "total_cases": 13,
     "compliant_count": 3,
-    "non_compliant_count": 8,
+    "non_compliant_count": 10,
     "runtime_fail_count": 0,
-    "quality_fail_count": 8,
+    "quality_fail_count": 10,
     "verify_fail_count": 0,
     "status_timeout_count": 0,
     "status_error_count": 0,
-    "elapsed_total_sec": 1047.823845
+    "elapsed_total_sec": 1277.338369
   },
+  "reason_counter": {
+    "quality_over_10pct": 10
+  },
+  "by_n": [
+    {
+      "n": 16,
+      "total": 13,
+      "compliant": 3,
+      "non_compliant": 10,
+      "quality_fail": 10,
+      "runtime_fail": 0,
+      "verify_fail": 0,
+      "avg_gap_ratio": 0.16731,
+      "avg_elapsed_sec": 98.256798
+    }
+  ],
+  "elapsed_total_wall_sec": 647.153827,
   "cases": [
     {
       "id": "L_16_4_4_3",
@@ -391,6 +408,72 @@
       "num_cands": 11440,
       "interaction_scale": 130873600,
       "non_compliant_reasons": []
+    },
+    {
+      "id": "L_16_7_7_5",
+      "n": 16,
+      "k": 7,
+      "j": 7,
+      "s": 5,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 31,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=05",
+      "status": "ok",
+      "solver_blocks": 38,
+      "gap_ratio": 0.225806,
+      "abs_gap_ratio": 0.225806,
+      "quality_ratio_to_baseline": 1.225806,
+      "elapsed_sec": 114.779725,
+      "first_legal_elapsed_sec": 6.84985,
+      "runtime_for_judge_sec": 114.779725,
+      "runtime_ok": true,
+      "quality_ok": false,
+      "solver_verified": true,
+      "solver_module": "solver_n16_isolated",
+      "solver_profile": "n16_isolated",
+      "verified_ok": true,
+      "compliant": false,
+      "error": null,
+      "num_targets": 11440,
+      "num_cands": 11440,
+      "interaction_scale": 130873600,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_16_7_7_6",
+      "n": 16,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 293,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06",
+      "status": "ok",
+      "solver_blocks": 372,
+      "gap_ratio": 0.269625,
+      "abs_gap_ratio": 0.269625,
+      "quality_ratio_to_baseline": 1.269625,
+      "elapsed_sec": 114.734799,
+      "first_legal_elapsed_sec": 3.134001,
+      "runtime_for_judge_sec": 114.734799,
+      "runtime_ok": true,
+      "quality_ok": false,
+      "solver_verified": true,
+      "solver_module": "solver_n16_isolated",
+      "solver_profile": "n16_isolated",
+      "verified_ok": true,
+      "compliant": false,
+      "error": null,
+      "num_targets": 11440,
+      "num_cands": 11440,
+      "interaction_scale": 130873600,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
     }
   ]
 }
