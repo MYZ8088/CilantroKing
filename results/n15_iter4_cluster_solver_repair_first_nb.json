@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26 00:10:22",
+  "generated_at": "2026-04-26 00:12:04",
   "config": {
     "n_min": 13,
     "n_max_exclusive": 16,
@@ -24,15 +24,15 @@
   },
   "baseline_file": "results\\n15_iter1_baseline_from_remaining.json",
   "summary": {
-    "total_cases": 9,
+    "total_cases": 10,
     "compliant_count": 0,
-    "non_compliant_count": 9,
+    "non_compliant_count": 10,
     "runtime_fail_count": 0,
-    "quality_fail_count": 9,
+    "quality_fail_count": 10,
     "verify_fail_count": 0,
     "status_timeout_count": 0,
     "status_error_count": 0,
-    "elapsed_total_sec": 1035.611539
+    "elapsed_total_sec": 1137.468793
   },
   "cases": [
     {
@@ -328,6 +328,39 @@
       "num_targets": 3003,
       "num_cands": 5005,
       "interaction_scale": 15030015,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    },
+    {
+      "id": "L_15_6_6_5",
+      "n": 15,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 142,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05",
+      "status": "ok",
+      "solver_blocks": 180,
+      "gap_ratio": 0.267606,
+      "abs_gap_ratio": 0.267606,
+      "quality_ratio_to_baseline": 1.267606,
+      "elapsed_sec": 101.857254,
+      "first_legal_elapsed_sec": 43.679717,
+      "runtime_for_judge_sec": 101.857254,
+      "runtime_ok": true,
+      "quality_ok": false,
+      "solver_verified": true,
+      "solver_module": "solver_n15_cluster_isolated",
+      "solver_profile": "default",
+      "verified_ok": true,
+      "compliant": false,
+      "error": null,
+      "num_targets": 5005,
+      "num_cands": 5005,
+      "interaction_scale": 25050025,
       "non_compliant_reasons": [
         "quality_over_10pct"
       ]
