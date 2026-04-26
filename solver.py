@@ -81,6 +81,8 @@ try:
     from ortools.sat.python import cp_model  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     cp_model = None
+if cp_model is not None and os.environ.get("CK_DISABLE_CPSAT") == "1":
+    cp_model = None
 
 
 _GPU_BATCH_PROBE_OK: bool | None = None
@@ -428,8 +430,14 @@ class CoveringDesignSolver:
         self._time_budget_sec = (
             float(time_budget_sec) if time_budget_sec is not None and time_budget_sec > 0 else None
         )
+        # Keep a safety margin to reduce borderline timeout overruns.
+        self._time_budget_margin_sec = 0.0
+        if self._time_budget_sec is not None:
+            self._time_budget_margin_sec = 2.5 if n >= 16 else 0.8
         self._deadline_at = (
-            self._t0 + self._time_budget_sec if self._time_budget_sec is not None else None
+            self._t0 + max(0.0, self._time_budget_sec - self._time_budget_margin_sec)
+            if self._time_budget_sec is not None
+            else None
         )
         self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
@@ -489,10 +497,11 @@ class CoveringDesignSolver:
         if self._identity_cover:
             return
 
+        gpu_min_interaction = max(0, _env_int("CK_GPU_MIN_INTERACTION", 0))
         self._gpu_enabled = bool(
             _env_int("CK_USE_GPU", 1)
             and cp is not None
-            and self._interaction_scale >= 500_000_000
+            and self._interaction_scale >= gpu_min_interaction
             and _probe_gpu_batch_path()
         )
 
@@ -677,6 +686,9 @@ class CoveringDesignSolver:
         
         if self._identity_cover:
             return self._solve_identity_cover()
+        exact_small = self._solve_small_exact_cover()
+        if exact_small is not None:
+            return exact_small
 
         best: list[int] | None = None
         base_attempts = self._effective_attempts()
@@ -690,6 +702,7 @@ class CoveringDesignSolver:
         best_updated_at: float | None = None
         last_sol_sig: int | None = None
         same_sig_streak = 0
+        tail_reserve_triggered = False
 
         if self._gpu_enabled:
             self._report("gpu", "GPU batch scoring enabled")
@@ -707,6 +720,21 @@ class CoveringDesignSolver:
             attempt_idx = attempt + 1
             if self._cancel():
                 break
+            if best is not None and self._deadline_at is not None:
+                reserve_sec = self._tail_refine_reserve_sec()
+                if reserve_sec > 0.0:
+                    rem = self._time_remaining_sec()
+                    if rem is not None and rem <= reserve_sec:
+                        if not tail_reserve_triggered:
+                            self._report(
+                                "optimize",
+                                (
+                                    "Stop main loop early to reserve "
+                                    f"{reserve_sec:.1f}s for cluster modules"
+                                ),
+                            )
+                            tail_reserve_triggered = True
+                        break
             if self._phase_a_should_stop_for_budget(avg_attempt_sec):
                 break
             if self._phase_a_should_stop_for_stagnation(
@@ -819,24 +847,137 @@ class CoveringDesignSolver:
             best = self._phase_e_mid_compact_search(best)
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
-            
-            # CP-SAT 对于大规模问题效果不好，暂时禁用
-            # if self._should_try_cpsat(best):
-            #     cpsat_result = self._cpsat_solve(best)
-            #     if cpsat_result and len(cpsat_result) < len(best):
-            #         best = cpsat_result
-            
-            # 尝试遗传算法改进
-            if self._should_try_genetic_algorithm(best):
-                ga_result = self._genetic_algorithm_improve(best)
-                if ga_result and len(ga_result) < len(best):
-                    best = ga_result
+            best = self._phase_i_nlt16_cluster_specialized_refine(best)
+            best = self._phase_k_cluster_structural_refine(best)
+            best = self._phase_h_nlt16_cp_sat_refine(best)
+            best = self._phase_g_nlt16_fixed_size_polish(best)
+            best = self._phase_h_nlt16_cp_sat_refine(best)
+            best = self._phase_i_nlt16_cluster_specialized_refine(best)
+            best = self._phase_k_cluster_structural_refine(best)
+            if self.n < 16 and self._deadline_at is not None:
+                for _ in range(2):
+                    rem = self._time_remaining_sec()
+                    if rem is None or rem < 6.0:
+                        break
+                    before = len(best)
+                    best = self._phase_h_nlt16_cp_sat_refine(best)
+                    best = self._phase_i_nlt16_cluster_specialized_refine(best)
+                    best = self._phase_k_cluster_structural_refine(best)
+                    if len(best) >= before:
+                        break
 
         masks = best or []
         return SolverResult(
             groups=[sorted(mask_to_elements(m)) for m in masks],
             elapsed=time.time() - self._t0,
             verified=False if self._skip_final_verify else self._verify(masks),
+            first_legal_elapsed=self._first_legal_elapsed,
+        )
+
+    def _should_use_small_exact_cover(self) -> bool:
+        if cp_model is None:
+            return False
+        if self.n >= 12:
+            return False
+        if self._cov_table is None or self._inv_table is None:
+            return False
+        if self.num_cands > 600 or self.num_targets > 600:
+            return False
+        return True
+
+    def _small_exact_time_budget(self) -> float:
+        remaining = self._time_remaining_sec()
+        if remaining is None:
+            return 12.0
+        if remaining <= 0.8:
+            return 0.0
+        return max(1.0, min(12.0, remaining * 0.5))
+
+    def _solve_small_exact_cover(self) -> SolverResult | None:
+        if not self._should_use_small_exact_cover():
+            return None
+
+        budget = self._small_exact_time_budget()
+        if budget <= 0.0:
+            return None
+
+        assert cp_model is not None
+        assert self._inv_table is not None
+
+        self._report(
+            "optimize",
+            (
+                "Small-n exact module: "
+                f"L({self.n},{self.k},{self.j},{self.s}), "
+                f"targets={self.num_targets}, cands={self.num_cands}, "
+                f"budget={budget:.1f}s"
+            ),
+        )
+
+        seed_strategy = GreedyStrategy(
+            name="small-exact-seed",
+            coverage_weight=1.0,
+            rarity_weight=0.2,
+            randomize=False,
+            spread_tiebreak=True,
+        )
+        seed_sol, complete, _ = self._greedy(seed_strategy)
+        seed_masks: list[int] = []
+        if complete:
+            seed_sol = self._local_search(seed_sol)
+            if seed_sol:
+                seed_masks = list(seed_sol)
+
+        model = cp_model.CpModel()
+        vars_x = [model.NewBoolVar(f"x_{i}") for i in range(self.num_cands)]
+        objective = sum(vars_x)
+
+        for ti, inv in enumerate(self._inv_table):
+            if len(inv) == 0:
+                self._report("optimize", f"Small-n exact skipped: uncovered target {ti}")
+                return None
+            model.Add(sum(vars_x[int(ci)] for ci in inv) >= 1)
+
+        if seed_masks:
+            seed_limit = len(seed_masks)
+            model.Add(objective <= seed_limit)
+            for mask in seed_masks:
+                ci = self._cand_index_map.get(int(mask))
+                if ci is not None:
+                    model.AddHint(vars_x[ci], 1)
+
+        model.Minimize(objective)
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = float(budget)
+        solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+        solver.parameters.random_seed = 0
+
+        status = solver.Solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            self._report("optimize", "Small-n exact module returned no feasible solution")
+            return None
+
+        picked_idx = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+        if not picked_idx:
+            return None
+
+        masks = [int(self.cand_masks[i]) for i in picked_idx]
+        masks = self._local_search(masks)
+        if not self._verify(masks):
+            return None
+
+        self._note_legal_solution()
+        proven = "optimal" if status == cp_model.OPTIMAL else "feasible"
+        self._report(
+            "optimize",
+            f"Small-n exact module ({proven}) found {len(masks)} groups",
+        )
+
+        return SolverResult(
+            groups=[sorted(mask_to_elements(m)) for m in masks],
+            elapsed=time.time() - self._t0,
+            verified=False if self._skip_final_verify else True,
             first_legal_elapsed=self._first_legal_elapsed,
         )
 
@@ -919,6 +1060,37 @@ class CoveringDesignSolver:
         return min(5, max(base_attempts, min_profiles))
 
     def _phase_a_hard_attempt_cap(self, base_attempts: int, profile_attempts: int) -> int:
+        if (
+            self._deadline_at is not None
+            and self.n < 16
+            and self._interaction_scale <= 120_000_000
+        ):
+            if self.j == self.k and not self._containment:
+                max_cap = 9 if self.num_targets >= 3_000 else 10
+                extra = 5
+            elif self._containment:
+                max_cap = 14 if self.k >= 6 else 12
+                extra = 10
+            else:
+                max_cap = 14
+                extra = 10
+            return max(profile_attempts, min(max_cap, base_attempts + extra))
+        if (
+            self._deadline_at is not None
+            and self.n == 16
+            and self._interaction_scale <= 130_000_000
+            and self._is_n16_hard_cluster()
+        ):
+            if self.j == self.k and not self._containment:
+                max_cap = 8 if self.num_targets >= 8_000 else 9
+                extra = 4
+            elif self._containment:
+                max_cap = 10 if self.k >= 6 else 8
+                extra = 5
+            else:
+                max_cap = 9
+                extra = 4
+            return max(profile_attempts, min(max_cap, base_attempts + extra))
         if self._deadline_at is not None and self._is_large_j_equals_k_noncontainment():
             max_cap = 20
             return max(profile_attempts, min(max_cap, base_attempts + 18))
@@ -948,6 +1120,43 @@ class CoveringDesignSolver:
                 extra = 3
         return max(profile_attempts, base_attempts + extra)
 
+    def _phase_a_reserved_polish_budget(self) -> float:
+        if self.n > 16:
+            return 0.0
+        if self.n == 16:
+            if not self._is_n16_hard_cluster():
+                return 0.0
+            if self.j == self.k and not self._containment:
+                if self.num_targets >= 8_000:
+                    return 16.0
+                if self.num_targets >= 3_000:
+                    return 14.0
+                return 12.0
+            if self._containment:
+                if self.k >= 6:
+                    return 12.0
+                if self.num_targets >= 2_000:
+                    return 10.0
+                return 8.0
+            if self.num_targets >= 2_000:
+                return 9.0
+            return 6.0
+        if self.j == self.k and not self._containment:
+            if self.num_targets >= 4_000:
+                return 34.0
+            if self.num_targets >= 1_500:
+                return 28.0
+            return 22.0
+        if self._containment:
+            if self.k >= 6 and self.n >= 14:
+                return 18.0
+            if self.num_targets >= 2_000:
+                return 16.0
+            return 12.0
+        if self.num_targets >= 1_200:
+            return 12.0
+        return 8.0
+
     def _phase_a_stagnation_limit(self) -> int:
         if self._interaction_scale <= 2_000_000:
             return 2
@@ -966,6 +1175,18 @@ class CoveringDesignSolver:
         remaining = self._time_remaining_sec()
         if remaining is None:
             return False
+        if self.n <= 16:
+            reserve = self._phase_a_reserved_polish_budget()
+            if self._first_legal_elapsed is not None and remaining <= reserve:
+                self._report(
+                    "optimize",
+                    (
+                        "Early stop: reserve budget for n<=16 polish "
+                        f"(remaining={remaining:.1f}s, reserve={reserve:.1f}s)"
+                    ),
+                )
+                return True
+            return remaining <= 0.35
         if self._is_mid_j_equals_k_noncontainment() and self.num_targets > 12_000 and remaining <= 12.0:
             return True
         if remaining <= 0.15:
@@ -991,11 +1212,31 @@ class CoveringDesignSolver:
     ) -> bool:
         if best is None or best_updated_at is None:
             return False
-        if not self._is_large_j_equals_k_noncontainment():
-            return False
 
         remaining = self._time_remaining_sec()
         if remaining is None:
+            return False
+        if (
+            self.n <= 16
+            and self._is_mid_j_equals_k_noncontainment()
+            and attempt >= 4
+            and stagnant >= 3
+            and same_sig_streak >= 3
+        ):
+            reserve = self._phase_a_reserved_polish_budget()
+            since_best = max(0.0, time.time() - best_updated_at)
+            dyn_threshold = max(8.0, (avg_attempt_sec or 0.0) * 2.2)
+            if remaining <= (reserve + 6.0) and since_best >= dyn_threshold:
+                self._report(
+                    "optimize",
+                    (
+                        "Early stop: n<=16 stagnation and switch to polish "
+                        f"(no improve {since_best:.1f}s, stagnant={stagnant}, repeat={same_sig_streak})"
+                    ),
+                )
+                return True
+            return False
+        if not self._is_large_j_equals_k_noncontainment():
             return False
         if attempt < 9 or stagnant < 7:
             return False
@@ -1096,8 +1337,659 @@ class CoveringDesignSolver:
         return (
             not self._containment
             and self.j == self.k
-            and 8_000 <= self.num_targets < 70_000
+            and 400 <= self.num_targets < 70_000
         )
+
+    def _is_nlt16_cluster_target(self) -> bool:
+        if self.n >= 16:
+            return False
+        if self._containment:
+            return self.k >= 5
+        if self.j == self.k:
+            return True
+        return self.k >= 6 and self.j >= 4
+
+    def _tail_refine_reserve_sec(self) -> float:
+        if not self._is_nlt16_cluster_target():
+            return 0.0
+        if self._containment:
+            if self.num_targets >= 2_000:
+                return 34.0
+            if self.num_targets >= 700:
+                return 28.0
+            return 22.0
+        if self.j == self.k:
+            if self.num_targets >= 2_000:
+                return 30.0
+            if self.num_targets >= 700:
+                return 24.0
+            return 18.0
+        return 14.0
+
+    def _is_n16_hard_cluster(self) -> bool:
+        if self.n != 16:
+            return False
+        if self.j == self.k and not self._containment:
+            return True
+        if self._containment and self.k >= 6:
+            return True
+        if (not self._containment) and self.k >= 6 and self.j >= 4:
+            return True
+        return False
+
+    def _n16_anchor_cluster(self) -> str:
+        if self.n != 16:
+            return "none"
+        if self.k <= 5:
+            if self._containment:
+                return "n16_light_containment"
+            if self.j == self.k:
+                return "n16_light_jk"
+            return "n16_light_general"
+        if self.j == self.k and not self._containment:
+            return "n16_hard_jk"
+        if self._containment:
+            return "n16_hard_containment"
+        return "n16_hard_general"
+
+    def _phase_n16_anchor_module_dispatch(self, sol: list[int]) -> list[int]:
+        if not self._n16_anchor_module_enabled:
+            return sol
+        if self.n != 16:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 6.0:
+            return sol
+
+        cluster = self._n16_anchor_cluster()
+        best = list(sol)
+
+        if cluster.startswith("n16_light_"):
+            best = self._phase_n16_light_exchange_module(best, module_tag=cluster)
+            best = self._phase_n16_anchor_reseed(
+                best,
+                rounds=4,
+                keep_ratio=0.56,
+                min_remaining=4.0,
+                module_tag=cluster,
+                allow_same_len_fallback=True,
+            )
+            best = self._phase_n16_anchor_multi_drop(
+                best,
+                drop_plan=(2, 1),
+                rounds_per_drop=3,
+                ratio=0.30,
+                cap=8.0,
+                min_remaining=3.5,
+                module_tag=cluster,
+            )
+            best = self._phase_n16_anchor_drop_one_intensify(
+                best,
+                rounds=7,
+                ratio=0.24,
+                cap=7.2,
+                min_remaining=3.0,
+                module_tag=cluster,
+            )
+            best = self._phase_n16_anchor_pair_compress(
+                best,
+                module_tag=cluster,
+                max_pool=26,
+                max_pairs=180,
+                min_remaining=2.8,
+            )
+            if (
+                cp_model is not None
+                and self._inv_table is not None
+                and (self.num_cands <= 5_000 or self.num_targets <= 4_500)
+                and self._phase_c_has_time(7.0)
+            ):
+                best = self._phase_i_full_cp_sat_module(best, hard_case=False)
+            return best
+
+        if cluster == "n16_hard_jk":
+            best = self._phase_n16_anchor_multi_drop(
+                best,
+                drop_plan=(2, 1),
+                rounds_per_drop=4,
+                ratio=0.34,
+                cap=13.0,
+                min_remaining=4.2,
+                module_tag=cluster,
+            )
+            best = self._phase_n16_anchor_reseed(
+                best,
+                rounds=2,
+                keep_ratio=0.72,
+                min_remaining=6.0,
+                module_tag=cluster,
+                allow_same_len_fallback=False,
+            )
+            best = self._phase_n16_anchor_drop_one_intensify(
+                best,
+                rounds=5,
+                ratio=0.26,
+                cap=9.0,
+                min_remaining=3.3,
+                module_tag=cluster,
+            )
+            return self._phase_n16_anchor_pair_compress(
+                best,
+                module_tag=cluster,
+                max_pool=34,
+                max_pairs=260,
+                min_remaining=3.0,
+            )
+
+        if cluster == "n16_hard_containment":
+            best = self._phase_n16_anchor_multi_drop(
+                best,
+                drop_plan=(2, 1),
+                rounds_per_drop=4,
+                ratio=0.35,
+                cap=14.0,
+                min_remaining=4.2,
+                module_tag=cluster,
+            )
+            best = self._phase_n16_anchor_reseed(
+                best,
+                rounds=2,
+                keep_ratio=0.70,
+                min_remaining=6.0,
+                module_tag=cluster,
+                allow_same_len_fallback=False,
+            )
+            best = self._phase_n16_anchor_drop_one_intensify(
+                best,
+                rounds=5,
+                ratio=0.27,
+                cap=9.6,
+                min_remaining=3.3,
+                module_tag=cluster,
+            )
+            return self._phase_n16_anchor_pair_compress(
+                best,
+                module_tag=cluster,
+                max_pool=34,
+                max_pairs=240,
+                min_remaining=3.0,
+            )
+
+        if cluster == "n16_hard_general":
+            best = self._phase_n16_anchor_multi_drop(
+                best,
+                drop_plan=(2, 1),
+                rounds_per_drop=3,
+                ratio=0.32,
+                cap=11.0,
+                min_remaining=4.0,
+                module_tag=cluster,
+            )
+            best = self._phase_n16_anchor_reseed(
+                best,
+                rounds=2,
+                keep_ratio=0.68,
+                min_remaining=5.0,
+                module_tag=cluster,
+                allow_same_len_fallback=False,
+            )
+            best = self._phase_n16_anchor_drop_one_intensify(
+                best,
+                rounds=4,
+                ratio=0.24,
+                cap=8.4,
+                min_remaining=3.2,
+                module_tag=cluster,
+            )
+            return self._phase_n16_anchor_pair_compress(
+                best,
+                module_tag=cluster,
+                max_pool=30,
+                max_pairs=220,
+                min_remaining=2.8,
+            )
+
+        return best
+
+    def _phase_n16_anchor_drop_one_intensify(
+        self,
+        sol: list[int],
+        *,
+        rounds: int,
+        ratio: float,
+        cap: float,
+        min_remaining: float,
+        module_tag: str,
+    ) -> list[int]:
+        if self.n != 16:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        best = list(sol)
+        misses = 0
+        for _ in range(max(1, rounds)):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < min_remaining:
+                break
+            target_len = len(best) - 1
+            if target_len < 1:
+                break
+            round_budget = float(min(cap, max(2.2, rem * ratio)))
+            start_masks = list(best)
+            if misses > 0 or random.random() < 0.7:
+                random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None:
+                misses += 1
+                if misses >= 3:
+                    break
+                continue
+            if len(improved) < len(best):
+                best = improved
+                misses = 0
+                self._report(
+                    "optimize",
+                    f"N16 anchor {module_tag} drop-one improved to {len(best)} groups",
+                )
+                continue
+            misses += 1
+            if misses >= 3:
+                break
+        return best
+
+    def _phase_n16_anchor_pair_compress(
+        self,
+        sol: list[int],
+        *,
+        module_tag: str,
+        max_pool: int,
+        max_pairs: int,
+        min_remaining: float,
+    ) -> list[int]:
+        if self.n != 16:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 8:
+            return sol
+
+        cand_index = self._cand_index_map
+        best_idx = [cand_index[m] for m in sol if m in cand_index]
+        if len(best_idx) != len(sol):
+            return sol
+        cov_table = self._cov_table
+        inv_table = self._inv_table
+
+        while True:
+            rem = self._time_remaining_sec()
+            if rem is None or rem < min_remaining:
+                break
+            if len(best_idx) < 8:
+                break
+
+            counts = np.zeros(self.num_targets, dtype=np.int32)
+            for ci in best_idx:
+                counts[cov_table[ci]] += 1
+
+            ranked: list[tuple[int, int, int]] = []
+            for ci in best_idx:
+                covered = cov_table[ci]
+                unique_loss = int(np.sum(counts[covered] == 1))
+                ranked.append((unique_loss, len(covered), ci))
+            ranked.sort(key=lambda t: (t[0], t[1]))
+
+            pool_size = max(3, min(len(ranked), max_pool))
+            pool = [ci for _, _, ci in ranked[:pool_size]]
+            if len(pool) < 3:
+                break
+
+            selected_set = set(best_idx)
+            pair_checked = 0
+            improved = False
+
+            for a_pos in range(len(pool)):
+                if improved:
+                    break
+                ci = pool[a_pos]
+                cov_i = cov_table[ci]
+                cov_i_set = set(int(t) for t in cov_i)
+                for b_pos in range(a_pos + 1, len(pool)):
+                    rem2 = self._time_remaining_sec()
+                    if rem2 is None or rem2 < min_remaining:
+                        break
+                    pair_checked += 1
+                    if pair_checked > max_pairs:
+                        break
+
+                    cj = pool[b_pos]
+                    uncovered: set[int] = set()
+                    for t in cov_i:
+                        ti = int(t)
+                        if counts[ti] == 1:
+                            uncovered.add(ti)
+                    for t in cov_table[cj]:
+                        ti = int(t)
+                        cti = counts[ti]
+                        if cti == 1 or (cti == 2 and ti in cov_i_set):
+                            uncovered.add(ti)
+                    if not uncovered:
+                        continue
+                    if len(uncovered) > 120:
+                        continue
+
+                    ordered_targets = sorted(uncovered, key=lambda ti: len(inv_table[ti]))
+                    candidate_set: set[int] | None = None
+                    for ti in ordered_targets:
+                        coverers = set(int(x) for x in inv_table[ti])
+                        if candidate_set is None:
+                            candidate_set = coverers
+                        else:
+                            candidate_set &= coverers
+                        if not candidate_set:
+                            break
+                    if not candidate_set:
+                        continue
+
+                    reduced_set = set(selected_set)
+                    reduced_set.discard(ci)
+                    reduced_set.discard(cj)
+
+                    chosen: int | None = None
+                    best_cov = -1
+                    for cand in sorted(candidate_set):
+                        if cand in reduced_set:
+                            continue
+                        cov_len = len(cov_table[cand])
+                        if cov_len > best_cov:
+                            best_cov = cov_len
+                            chosen = cand
+                    if chosen is None:
+                        continue
+
+                    candidate_idx = [x for x in best_idx if x != ci and x != cj]
+                    candidate_idx.append(chosen)
+                    if len(candidate_idx) >= len(best_idx):
+                        continue
+                    candidate_masks = [int(self.cand_masks[x]) for x in candidate_idx]
+                    if not self._verify(candidate_masks):
+                        continue
+
+                    best_idx = candidate_idx
+                    self._report(
+                        "optimize",
+                        f"N16 anchor {module_tag} pair-compress improved to {len(best_idx)} groups",
+                    )
+                    improved = True
+                    break
+
+            if not improved:
+                break
+
+        return [int(self.cand_masks[ci]) for ci in best_idx]
+
+    def _phase_n16_anchor_multi_drop(
+        self,
+        sol: list[int],
+        *,
+        drop_plan: tuple[int, ...],
+        rounds_per_drop: int,
+        ratio: float,
+        cap: float,
+        min_remaining: float,
+        module_tag: str,
+    ) -> list[int]:
+        if self.n != 16:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 8:
+            return sol
+
+        best = list(sol)
+        for drop in drop_plan:
+            misses = 0
+            for _ in range(max(1, rounds_per_drop)):
+                rem = self._time_remaining_sec()
+                if rem is None or rem < min_remaining:
+                    return best
+                target_len = len(best) - int(drop)
+                if target_len < 1:
+                    break
+                round_budget = float(min(cap, max(2.6, rem * ratio)))
+                start_masks = list(best)
+                if misses > 0 or random.random() < 0.6:
+                    random.shuffle(start_masks)
+                improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+                if improved is None:
+                    misses += 1
+                    if misses >= 2:
+                        break
+                    continue
+                if len(improved) < len(best):
+                    best = improved
+                    misses = 0
+                    self._report(
+                        "optimize",
+                        f"N16 anchor {module_tag} multi-drop improved to {len(best)} groups",
+                    )
+                    continue
+                misses += 1
+                if misses >= 2:
+                    break
+        return best
+
+    def _phase_n16_anchor_reseed(
+        self,
+        sol: list[int],
+        *,
+        rounds: int,
+        keep_ratio: float,
+        min_remaining: float,
+        module_tag: str,
+        allow_same_len_fallback: bool,
+    ) -> list[int]:
+        if self.n != 16:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        best = list(sol)
+        strategy_pool = [
+            GreedyStrategy(
+                name=f"{module_tag}-anchor-a",
+                coverage_weight=0.90,
+                rarity_weight=0.36,
+                randomize=True,
+                noise_scale=0.92,
+                rcl_fraction=0.085,
+                rcl_min_count=4,
+                top_k_scale=1.6,
+                destroy_repair_rounds=2,
+            ),
+            GreedyStrategy(
+                name=f"{module_tag}-anchor-b",
+                coverage_weight=0.98,
+                rarity_weight=0.24,
+                randomize=True,
+                noise_scale=0.72,
+                rcl_fraction=0.064,
+                rcl_min_count=3,
+                top_k_scale=1.45,
+                destroy_repair_rounds=1,
+            ),
+        ]
+
+        for round_idx in range(max(1, rounds)):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < min_remaining:
+                break
+            keep = max(2, min(len(best) - 1, int(len(best) * keep_ratio)))
+            if keep >= len(best):
+                keep = len(best) - 1
+            if keep < 2:
+                break
+            partial = random.sample(best, keep)
+            base_strategy = strategy_pool[round_idx % len(strategy_pool)]
+            strategy = self._phase_b_strategy_variant(base_strategy, attempt_idx=round_idx + 2)
+
+            strict_limit = max(1, len(best) - 1)
+            candidate, complete, _ = self._greedy(
+                strategy,
+                partial=partial,
+                best_limit=strict_limit,
+            )
+            if (not complete) and allow_same_len_fallback and self._phase_c_has_time(3.2):
+                relaxed_limit = len(best) + max(2, len(best) // 24)
+                candidate, complete, _ = self._greedy(
+                    strategy,
+                    partial=partial,
+                    best_limit=relaxed_limit,
+                )
+            if not complete:
+                continue
+
+            candidate = self._optimise_solution(
+                candidate,
+                strategy,
+                best_len=len(best),
+                stagnant=0,
+            )
+            if len(candidate) >= len(best):
+                continue
+            if not self._verify(candidate):
+                continue
+
+            best = candidate
+            self._report(
+                "optimize",
+                f"N16 anchor {module_tag} reseed improved to {len(best)} groups",
+            )
+
+        return best
+
+    def _phase_n16_light_exchange_module(
+        self,
+        sol: list[int],
+        *,
+        module_tag: str,
+    ) -> list[int]:
+        if self.n != 16:
+            return sol
+        if self.k > 5:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 10:
+            return sol
+
+        cand_index = self._cand_index_map
+        best_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(best_indices) != len(sol):
+            return sol
+
+        cov_table = self._cov_table
+        best_len = len(best_indices)
+        rounds = 10 if best_len >= 45 else 8
+
+        for round_idx in range(rounds):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 3.2:
+                break
+
+            counts = np.zeros(self.num_targets, dtype=np.int32)
+            for ci in best_indices:
+                counts[cov_table[ci]] += 1
+
+            removable: list[tuple[int, int, int]] = []
+            for ci in best_indices:
+                covered = cov_table[ci]
+                unique_loss = int(np.sum(counts[covered] == 1))
+                removable.append((unique_loss, len(covered), ci))
+            removable.sort(key=lambda t: (t[0], t[1]))
+            if len(removable) < 3:
+                break
+
+            if best_len >= 60:
+                drop_count = 6 if round_idx < 2 else 5
+            elif best_len >= 40:
+                drop_count = 5 if round_idx < 2 else 4
+            else:
+                drop_count = 4 if round_idx < 2 else 3
+            drop_count = max(2, min(drop_count, len(removable) - 1))
+
+            pool_size = min(len(removable), max(drop_count + 4, 16))
+            pool = [ci for _, _, ci in removable[:pool_size]]
+            dropped = random.sample(pool, drop_count)
+            dropped_set = set(dropped)
+
+            work = [ci for ci in best_indices if ci not in dropped_set]
+            work_set = set(work)
+            counts_work = np.zeros(self.num_targets, dtype=np.int32)
+            for ci in work:
+                counts_work[cov_table[ci]] += 1
+
+            target_limit = best_len - 1
+            failed = False
+            while True:
+                uncov = np.flatnonzero(counts_work == 0)
+                if len(uncov) == 0:
+                    break
+                if len(work) >= target_limit:
+                    failed = True
+                    break
+
+                available = np.ones(self.num_cands, dtype=bool)
+                if work_set:
+                    available[np.fromiter(work_set, dtype=np.int32)] = False
+                avail_idx = np.flatnonzero(available)
+                if len(avail_idx) == 0:
+                    failed = True
+                    break
+
+                cands = self.cand_masks[avail_idx]
+                targets = self.target_masks[uncov]
+                best_local, hit_cnt = self._batch_best(cands, targets)
+                if hit_cnt <= 0:
+                    failed = True
+                    break
+                add_ci = int(avail_idx[best_local])
+                work.append(add_ci)
+                work_set.add(add_ci)
+                counts_work[cov_table[add_ci]] += 1
+
+            if failed or len(work) >= best_len:
+                continue
+
+            candidate = [int(self.cand_masks[ci]) for ci in work]
+            if not self._verify(candidate):
+                continue
+
+            best_indices = work
+            best_len = len(best_indices)
+            self._report(
+                "optimize",
+                f"N16 anchor {module_tag} light-exchange improved to {best_len} groups",
+            )
+
+            if best_len < 12:
+                break
+
+        return [int(self.cand_masks[ci]) for ci in best_indices]
 
     def _build_attempt_profiles(self, num_attempts: int) -> list[GreedyStrategy]:
         if self._cov_table is None:
@@ -1908,7 +2800,7 @@ class CoveringDesignSolver:
             self._gpu_enabled
             and not self._gpu_failed
             and len(cands) >= 256
-            and len(targets) >= 4096
+            and len(targets) >= 1024
         ):
             try:
                 return self._batch_scores_gpu(cands, targets)
@@ -1924,7 +2816,7 @@ class CoveringDesignSolver:
             self._gpu_enabled
             and not self._gpu_failed
             and len(cands) >= 256
-            and len(targets) >= 4096
+            and len(targets) >= 1024
         ):
             try:
                 return self._batch_best_gpu(cands, targets)
@@ -2101,8 +2993,8 @@ class CoveringDesignSolver:
             return self.num_targets == 0
         if (
             self._gpu_active()
-            and self.num_targets >= 4096
-            and len(masks) * self.num_targets >= 20_000_000
+            and self.num_targets >= 2048
+            and len(masks) * self.num_targets >= 4_000_000
         ):
             try:
                 return self._verify_gpu(masks)
@@ -2120,9 +3012,9 @@ class CoveringDesignSolver:
     def _uncovered_masks(self, masks: list[int]) -> np.ndarray:
         if (
             self._gpu_active()
-            and self.num_targets >= 4096
+            and self.num_targets >= 2048
             and masks
-            and len(masks) * self.num_targets >= 20_000_000
+            and len(masks) * self.num_targets >= 4_000_000
         ):
             try:
                 return self._uncovered_masks_gpu(masks)
@@ -2249,7 +3141,8 @@ class CoveringDesignSolver:
             return sol
         if self._cov_table is None:
             return sol
-        if len(sol) < 24:
+        min_len = 12 if (self.n < 16 and self.j == self.k and not self._containment) else 24
+        if len(sol) < min_len:
             return sol
         if not self._phase_c_has_time(6.0):
             return sol
@@ -2318,7 +3211,8 @@ class CoveringDesignSolver:
             return sol
         if self._deadline_at is None:
             return sol
-        if len(sol) < 24:
+        min_len = 12 if (self.n < 16 and self.j == self.k and not self._containment) else 24
+        if len(sol) < min_len:
             return sol
         if not self._phase_c_has_time(8.0):
             return sol
@@ -2409,7 +3303,8 @@ class CoveringDesignSolver:
             return sol
         if self._deadline_at is None:
             return sol
-        if len(sol) < 16:
+        min_len = 10 if (self.n < 16 and self.j == self.k and not self._containment) else 16
+        if len(sol) < min_len:
             return sol
 
         remaining = self._time_remaining_sec()
@@ -2435,15 +3330,18 @@ class CoveringDesignSolver:
 
             model = cp_model.CpModel()
             vars_x = [model.NewBoolVar(f"x_{i}") for i in range(self.num_cands)]
-            model.Add(sum(vars_x) <= upper_bound)
+            objective = sum(vars_x)
+            model.Add(objective <= upper_bound)
             for covering in self._inv_table:
                 model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+            model.Minimize(objective)
 
             for idx in selected_indices:
                 model.AddHint(vars_x[idx], 1)
 
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = float(min(20.0, max(1.5, remaining - 0.8)))
+            iter_cap = 8.0 if (self.n < 16 and self.j == self.k and not self._containment) else 20.0
+            solver.parameters.max_time_in_seconds = float(min(iter_cap, max(1.5, remaining - 0.8)))
             solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
             solver.parameters.random_seed = 1
             status = solver.Solve(model)
@@ -2571,12 +3469,14 @@ class CoveringDesignSolver:
         local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
         model = cp_model.CpModel()
         vars_x = [model.NewBoolVar(f"x_{i}") for i in range(len(neighborhood))]
-        model.Add(sum(vars_x) <= target_ub)
+        objective = sum(vars_x)
+        model.Add(objective <= target_ub)
         for covering in self._inv_table:
             loc = [local_pos[int(ci)] for ci in covering if int(ci) in local_pos]
             if not loc:
                 continue
             model.AddBoolOr([vars_x[i] for i in loc])
+        model.Minimize(objective)
         for ci in selected_indices:
             model.AddHint(vars_x[local_pos[ci]], 1)
 
@@ -2619,6 +3519,1491 @@ class CoveringDesignSolver:
             )
             return candidate
         return sol
+
+    def _phase_g_nlt16_fixed_size_polish(self, sol: list[int]) -> list[int]:
+        if self.n > 16:
+            return sol
+        if self.n == 16 and not self._is_n16_hard_cluster():
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        best = list(sol)
+        miss_count = 0
+        while True:
+            remaining = self._time_remaining_sec()
+            if remaining is None or remaining < 3.0:
+                break
+            target_len = len(best) - 1
+            if target_len < 1:
+                break
+
+            # Keep each round bounded so we can try multiple target lengths.
+            hard_case = (
+                (self.j == self.k and not self._containment)
+                or (self._containment and self.k >= 6)
+            )
+            ratio = 0.30 if hard_case else 0.22
+            cap = 28.0 if hard_case else 18.0
+            round_budget = float(min(cap, max(4.0, remaining * ratio)))
+
+            start_masks = list(best)
+            if miss_count > 0:
+                random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None:
+                miss_count += 1
+                if remaining < 8.0 or miss_count >= 4:
+                    break
+                continue
+            miss_count = 0
+            best = improved
+            self._report(
+                "optimize",
+                f"Phase-G fixed-size improved to {len(best)} groups",
+            )
+        return best
+
+    def _phase_g_try_target_len(
+        self,
+        start_masks: list[int],
+        target_len: int,
+        budget_sec: float,
+    ) -> list[int] | None:
+        cov_table = self._cov_table
+        inv_table = self._inv_table
+        assert cov_table is not None and inv_table is not None
+
+        cand_index = self._cand_index_map
+        start_idx = [cand_index[m] for m in start_masks if m in cand_index]
+        if len(start_idx) != len(start_masks):
+            return None
+        if len(start_idx) <= target_len:
+            return None
+
+        def _coverage_counts(selected_idx: list[int]) -> np.ndarray:
+            counts = np.zeros(self.num_targets, dtype=np.int32)
+            for ci in selected_idx:
+                counts[cov_table[ci]] += 1
+            return counts
+
+        def _trim_to_target(selected_idx: list[int]) -> tuple[list[int], np.ndarray]:
+            work = list(selected_idx)
+            counts = _coverage_counts(work)
+            while len(work) > target_len:
+                best_pos = 0
+                best_score: tuple[int, int] | None = None
+                for pos, ci in enumerate(work):
+                    covered = cov_table[ci]
+                    unique_loss = int(np.sum(counts[covered] == 1))
+                    score = (unique_loss, len(covered))
+                    if best_score is None or score < best_score:
+                        best_score = score
+                        best_pos = pos
+                removed = work.pop(best_pos)
+                counts[cov_table[removed]] -= 1
+            return work, counts
+
+        deadline = time.time() + max(0.1, budget_sec)
+        base_sel, base_counts = _trim_to_target(start_idx)
+        if int(np.sum(base_counts == 0)) == 0:
+            candidate = [int(self.cand_masks[ci]) for ci in base_sel]
+            if self._verify(candidate):
+                return candidate
+
+        max_restarts = 20 if target_len >= 80 else 14
+        max_steps = 2600 if target_len >= 80 else 1600
+        if target_len < 20:
+            max_restarts = 64
+            max_steps = 5400
+            top_k = 80 if self.num_cands >= 2000 else 56
+            sample_size = 12
+        elif target_len < 40:
+            max_restarts = 42
+            max_steps = 4200
+            top_k = 104 if self.num_cands >= 2000 else 72
+            sample_size = 16
+        elif target_len >= 150:
+            max_restarts = max(max_restarts, 28)
+            max_steps = max(max_steps, 3200)
+            top_k = 192
+            sample_size = 36
+        elif target_len >= 80:
+            top_k = 144 if self.num_cands >= 2000 else 96
+            sample_size = 30
+        else:
+            top_k = 96 if self.num_cands >= 2000 else 64
+            sample_size = 20
+        weight = self._target_weights
+        dynamic_weight = weight.astype(np.float64, copy=True)
+
+        for restart in range(max_restarts):
+            if time.time() >= deadline or self._cancel():
+                break
+            selected = list(base_sel)
+            counts = base_counts.copy()
+            selected_set = set(selected)
+
+            # Diversify each restart with a few random swaps.
+            perturb = min(4, max(1, target_len // 35))
+            for _ in range(perturb):
+                if time.time() >= deadline:
+                    break
+                drop_pos = random.randrange(len(selected))
+                dropped = selected.pop(drop_pos)
+                selected_set.remove(dropped)
+                counts[cov_table[dropped]] -= 1
+
+                uncovered = np.flatnonzero(counts == 0)
+                if len(uncovered) == 0:
+                    selected.append(dropped)
+                    selected_set.add(dropped)
+                    counts[cov_table[dropped]] += 1
+                    continue
+
+                scores = np.zeros(self.num_cands, dtype=np.float64)
+                for ti in uncovered:
+                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
+                if selected_set:
+                    scores[list(selected_set)] = -1e18
+                if np.max(scores) <= 0:
+                    add_ci = dropped
+                else:
+                    k = min(top_k, self.num_cands)
+                    top = np.argpartition(scores, -k)[-k:]
+                    top = top[scores[top] > 0]
+                    if len(top) == 0:
+                        add_ci = int(np.argmax(scores))
+                    else:
+                        add_ci = int(random.choice(top.tolist()))
+                selected.append(add_ci)
+                selected_set.add(add_ci)
+                counts[cov_table[add_ci]] += 1
+
+            unc = int(np.sum(counts == 0))
+            best_unc = unc
+            no_improve = 0
+            tabu_drop_until: dict[int, int] = {}
+            tabu_add_until: dict[int, int] = {}
+            tabu_tenure = 9 if target_len >= 80 else 7
+
+            for iter_idx in range(max_steps):
+                if time.time() >= deadline or self._cancel():
+                    break
+                if unc == 0:
+                    candidate = [int(self.cand_masks[ci]) for ci in selected]
+                    if self._verify(candidate):
+                        return candidate
+                    break
+
+                pick_n = min(sample_size, len(selected))
+                sampled_pos = random.sample(range(len(selected)), pick_n)
+                drop_pos = sampled_pos[0]
+                drop_score: float | None = None
+                for pos in sampled_pos:
+                    ci = selected[pos]
+                    tabu_until = tabu_drop_until.get(ci)
+                    if tabu_until is not None and tabu_until > iter_idx:
+                        continue
+                    covered = cov_table[ci]
+                    unique_loss = int(np.sum(counts[covered] == 1))
+                    score = float(unique_loss) + random.random() * 2.0
+                    if drop_score is None or score < drop_score:
+                        drop_score = score
+                        drop_pos = pos
+
+                dropped = selected.pop(drop_pos)
+                selected_set.remove(dropped)
+                counts[cov_table[dropped]] -= 1
+
+                uncovered = np.flatnonzero(counts == 0)
+                scores = np.zeros(self.num_cands, dtype=np.float64)
+                for ti in uncovered:
+                    scores[inv_table[int(ti)]] += float(dynamic_weight[int(ti)])
+                if selected_set:
+                    scores[list(selected_set)] = -1e18
+
+                if np.max(scores) <= 0:
+                    add_ci = dropped
+                else:
+                    k = min(top_k, self.num_cands)
+                    top = np.argpartition(scores, -k)[-k:]
+                    top = top[scores[top] > 0]
+                    if len(top) == 0:
+                        add_ci = int(np.argmax(scores))
+                    else:
+                        ordered = top[np.argsort(scores[top])[::-1]]
+                        add_ci = int(ordered[0])
+                        for cand in ordered[:24]:
+                            cand_i = int(cand)
+                            tabu_until = tabu_add_until.get(cand_i)
+                            if tabu_until is None or tabu_until <= iter_idx:
+                                add_ci = cand_i
+                                break
+                        if random.random() >= 0.78:
+                            sample_pool = [int(x) for x in ordered[: max(3, min(12, len(ordered)))]]
+                            random.shuffle(sample_pool)
+                            for cand_i in sample_pool:
+                                tabu_until = tabu_add_until.get(cand_i)
+                                if tabu_until is None or tabu_until <= iter_idx:
+                                    add_ci = cand_i
+                                    break
+
+                selected.append(add_ci)
+                selected_set.add(add_ci)
+                counts[cov_table[add_ci]] += 1
+                tabu_drop_until[dropped] = iter_idx + tabu_tenure
+                tabu_add_until[add_ci] = iter_idx + tabu_tenure
+
+                new_unc = int(np.sum(counts == 0))
+                if new_unc < best_unc:
+                    best_unc = new_unc
+                    no_improve = 0
+                    dynamic_weight = np.maximum(weight, dynamic_weight * 0.92)
+                else:
+                    no_improve += 1
+                    if (iter_idx + 1) % 32 == 0:
+                        unc_idx = np.flatnonzero(counts == 0)
+                        if len(unc_idx) > 0:
+                            dynamic_weight[unc_idx] = np.minimum(
+                                dynamic_weight[unc_idx] * 1.08,
+                                weight[unc_idx] * 6.0,
+                            )
+                unc = new_unc
+
+                if no_improve >= 240:
+                    break
+
+        return None
+
+    def _phase_h_ranked_candidates(
+        self,
+        selected_indices: list[int],
+        base_scores: np.ndarray,
+    ) -> np.ndarray:
+        ranked_scores = np.asarray(base_scores, dtype=np.float64)
+        if self._cov_table is None or self._inv_table is None:
+            return np.argsort(ranked_scores)[::-1]
+
+        counts = np.zeros(self.num_targets, dtype=np.int32)
+        for ci in selected_indices:
+            counts[self._cov_table[ci]] += 1
+
+        fragile_idx = np.flatnonzero(counts <= 2)
+        if len(fragile_idx) == 0:
+            return np.argsort(ranked_scores)[::-1]
+
+        # Bound accumulation cost for very wide fragile sets.
+        if len(fragile_idx) > 2_600:
+            frag_score = (
+                (3.0 - np.minimum(counts[fragile_idx], 2.0))
+                * self._target_weights[fragile_idx]
+            )
+            keep = np.argpartition(frag_score, -2_600)[-2_600:]
+            fragile_idx = fragile_idx[keep]
+
+        bonus = np.zeros(self.num_cands, dtype=np.float64)
+        for ti in fragile_idx:
+            coverers = self._inv_table[int(ti)]
+            if len(coverers) == 0:
+                continue
+            support = counts[int(ti)]
+            mult = 4.0 if support <= 1 else 1.8
+            bonus[coverers] += float(self._target_weights[int(ti)] * mult)
+
+        return np.argsort(ranked_scores + bonus)[::-1]
+
+    def _phase_h_budget_cap_sec(self, *, remaining_sec: float, current_len: int) -> float:
+        if remaining_sec <= 1.2:
+            return 0.0
+
+        if self.n < 16:
+            if self._containment:
+                frac = 0.30 if current_len < 300 else 0.36
+                cap = 34.0 if current_len < 300 else 42.0
+                floor = 8.0
+            elif self.j == self.k:
+                frac = 0.28 if current_len < 120 else 0.34
+                cap = 30.0 if current_len < 120 else 36.0
+                floor = 7.0
+            else:
+                frac = 0.24
+                cap = 18.0
+                floor = 5.5
+            budget = max(floor, min(cap, remaining_sec * frac))
+            return max(0.0, min(remaining_sec - 0.8, budget))
+
+        budget = max(8.0, min(56.0, remaining_sec * 0.58))
+        return max(0.0, min(remaining_sec - 0.8, budget))
+
+    def _phase_h_nlt16_cp_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self.n > 16:
+            return sol
+        if self.n == 16 and not self._is_n16_hard_cluster():
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 6:
+            return sol
+
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 5.0:
+            return sol
+        phase_budget = self._phase_h_budget_cap_sec(
+            remaining_sec=float(remaining),
+            current_len=len(sol),
+        )
+        if phase_budget < 1.5:
+            return sol
+        phase_deadline = time.time() + phase_budget
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        ranked_scores = self._base_weighted_scores
+        if ranked_scores is None:
+            if self._cov_table is None:
+                return sol
+            ranked_scores = np.array([len(c) for c in self._cov_table], dtype=np.float64)
+
+        if self.j == self.k and not self._containment:
+            extras_cap = 5200 if self.n == 16 else 3600
+        elif self._containment:
+            extras_cap = 4200 if (self.n == 16 and self.k >= 6) else 3200
+        else:
+            extras_cap = 2400
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        target_ub = best_len - 1
+        selected_set = set(selected_indices)
+
+        while target_ub >= 1:
+            if time.time() >= phase_deadline:
+                break
+            remaining = self._time_remaining_sec()
+            if remaining is None or remaining < 4.0:
+                break
+            hard_case = (
+                (self.j == self.k and not self._containment)
+                or (self._containment and self.k >= 6 and self.n >= 14)
+            )
+
+            ranked = self._phase_h_ranked_candidates(selected_indices, ranked_scores)
+            max_extra = max(0, self.num_cands - len(selected_indices))
+            if max_extra <= 0:
+                break
+
+            # 小规模和小组数实例优先直接扩到全候选，避免精修被门槛挡住。
+            if len(best_masks) <= 14 or self.num_targets <= 1800:
+                extra_levels = [max_extra]
+            else:
+                if hard_case:
+                    growth = [
+                        min(max_extra, extras_cap),
+                        min(max_extra, int(extras_cap * 1.85) + 520),
+                        max_extra,
+                    ]
+                else:
+                    growth = [
+                        min(max_extra, extras_cap),
+                        min(max_extra, int(extras_cap * 1.45) + 260),
+                        min(max_extra, int(extras_cap * 2.05) + 640),
+                        max_extra,
+                    ]
+                extra_levels = []
+                for g in growth:
+                    gg = int(max(0, g))
+                    if gg not in extra_levels:
+                        extra_levels.append(gg)
+
+            found = False
+            for extra_cap in extra_levels:
+                if time.time() >= phase_deadline:
+                    break
+                run_remaining = self._time_remaining_sec()
+                if run_remaining is None or run_remaining < 3.0:
+                    break
+                run_remaining = min(run_remaining, max(0.0, phase_deadline - time.time()))
+                if run_remaining < 2.0:
+                    break
+
+                neighborhood = list(selected_indices)
+                if extra_cap > 0:
+                    for ci in ranked:
+                        cii = int(ci)
+                        if cii in selected_set:
+                            continue
+                        neighborhood.append(cii)
+                        if len(neighborhood) >= len(selected_indices) + extra_cap:
+                            break
+                if len(neighborhood) <= len(selected_indices):
+                    continue
+
+                local_pos = {ci: idx for idx, ci in enumerate(neighborhood)}
+                model = cp_model.CpModel()
+                vars_x = [model.NewBoolVar(f"xh_{i}") for i in range(len(neighborhood))]
+                objective = sum(vars_x)
+                model.Add(objective <= target_ub)
+
+                missing_cover = False
+                for covering in self._inv_table:
+                    loc = [local_pos[int(ci)] for ci in covering if int(ci) in local_pos]
+                    if not loc:
+                        missing_cover = True
+                        break
+                    model.AddBoolOr([vars_x[i] for i in loc])
+                if missing_cover:
+                    continue
+                model.Minimize(objective)
+
+                for ci in selected_indices:
+                    p = local_pos.get(ci)
+                    if p is not None:
+                        model.AddHint(vars_x[p], 1)
+
+                seeds = [1, 17]
+                if run_remaining >= 26.0 and extra_cap < max_extra:
+                    seeds.append(29)
+                if extra_cap >= max_extra and run_remaining >= 18.0:
+                    seeds.append(47)
+                per_run = max(
+                    2.5,
+                    min(24.0 if hard_case else 12.0, (run_remaining - 0.8) / max(1, len(seeds))),
+                )
+                if hard_case:
+                    per_run = max(3.5, per_run)
+
+                for seed in seeds:
+                    if time.time() >= phase_deadline:
+                        break
+                    seed_remaining = self._time_remaining_sec()
+                    if seed_remaining is None or seed_remaining < 2.0:
+                        break
+                    seed_remaining = min(
+                        seed_remaining,
+                        max(0.0, phase_deadline - time.time()),
+                    )
+                    if seed_remaining < 1.3:
+                        break
+                    solver = cp_model.CpSolver()
+                    solver.parameters.max_time_in_seconds = float(
+                        min(per_run, max(1.5, seed_remaining - 0.7))
+                    )
+                    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                    solver.parameters.random_seed = seed
+                    status = solver.Solve(model)
+                    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                        continue
+
+                    picked_local = [i for i in range(len(neighborhood)) if solver.Value(vars_x[i]) == 1]
+                    if len(picked_local) >= best_len:
+                        continue
+
+                    picked_global = [neighborhood[i] for i in picked_local]
+                    candidate = [int(self.cand_masks[i]) for i in picked_global]
+                    if not self._verify(candidate):
+                        continue
+
+                    best_masks = candidate
+                    best_len = len(best_masks)
+                    target_ub = best_len - 1
+                    selected_indices = picked_global
+                    selected_set = set(selected_indices)
+                    found = True
+                    self._report(
+                        "optimize",
+                        f"Phase-H CP-SAT refined to {best_len} groups",
+                    )
+                    break
+
+                if found:
+                    break
+
+            if not found:
+                break
+
+        return best_masks
+
+    def _phase_i_nlt16_cluster_specialized_refine(self, sol: list[int]) -> list[int]:
+        if self.n > 16:
+            return sol
+        if self.n == 16 and not self._is_n16_hard_cluster():
+            return sol
+        if self._deadline_at is None:
+            return sol
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 3.5:
+            return sol
+
+        best = list(sol)
+        if self.j == self.k and not self._containment:
+            best = self._phase_i_jk_cycle_module(best)
+            best = self._phase_i_full_cp_sat_module(best, hard_case=True)
+            return best
+        if self._containment:
+            best = self._phase_i_containment_cycle_module(best)
+            return self._phase_i_full_cp_sat_module(
+                best,
+                hard_case=bool(self.k >= 6 and self.n >= 14),
+            )
+        best = self._phase_i_general_small_module(best)
+        return self._phase_i_full_cp_sat_module(best, hard_case=False)
+
+    def _phase_i_jk_cycle_module(self, sol: list[int]) -> list[int]:
+        if not self._is_mid_j_equals_k_noncontainment():
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 18:
+            return sol
+        if not self._phase_c_has_time(3.5):
+            return sol
+
+        best = list(sol)
+        misses = 0
+        rounds = 10 if len(best) < 120 else 8
+        for _ in range(rounds):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 3.2:
+                break
+            target_len = len(best) - 1
+            if target_len < 1:
+                break
+
+            budget_cap = 10.0 if len(best) < 120 else 14.0
+            round_budget = float(min(budget_cap, max(2.8, rem * 0.35)))
+
+            start_masks = list(best)
+            random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None:
+                misses += 1
+                if misses >= 3 and rem < 12.0:
+                    break
+                continue
+            if len(improved) < len(best):
+                best = improved
+                misses = 0
+                self._report(
+                    "optimize",
+                    f"Phase-I jk-cycle improved to {len(best)} groups",
+                )
+            else:
+                misses += 1
+                if misses >= 4:
+                    break
+
+        return best
+
+    def _phase_i_containment_cycle_module(self, sol: list[int]) -> list[int]:
+        if not self._containment:
+            return sol
+        if self.n > 16:
+            return sol
+        if self.n == 16 and self.k < 6:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        min_len = 36 if self.num_targets >= 1_500 else 24
+        if len(sol) < min_len:
+            return sol
+        if not self._phase_c_has_time(4.0):
+            return sol
+
+        best = list(sol)
+        misses = 0
+        rounds = 10 if len(best) < 300 else 8
+        for _ in range(rounds):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 3.2:
+                break
+            target_len = len(best) - 1
+            if target_len < 1:
+                break
+
+            budget_cap = 12.0 if len(best) < 300 else 18.0
+            round_budget = float(min(budget_cap, max(3.2, rem * 0.4)))
+
+            start_masks = list(best)
+            random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None:
+                misses += 1
+                if misses >= 3 and rem < 14.0:
+                    break
+                continue
+            if len(improved) < len(best):
+                best = improved
+                misses = 0
+                self._report(
+                    "optimize",
+                    f"Phase-I containment-cycle improved to {len(best)} groups",
+                )
+            else:
+                misses += 1
+                if misses >= 4:
+                    break
+
+        return best
+
+    def _phase_i_general_small_module(self, sol: list[int]) -> list[int]:
+        if self._containment or self.j == self.k:
+            return sol
+        if self.n >= 16:
+            return sol
+        if self._cov_table is None or self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 10 or len(sol) > 90:
+            return sol
+        if not self._phase_c_has_time(3.0):
+            return sol
+
+        best = list(sol)
+        misses = 0
+        rounds = 12
+        for _ in range(rounds):
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 2.6:
+                break
+            target_drop = 2 if len(best) <= 35 else 1
+            target_len = len(best) - target_drop
+            if target_len < 1:
+                break
+
+            round_budget = float(min(14.0, max(2.8, rem * 0.36)))
+            start_masks = list(best)
+            if misses > 0:
+                random.shuffle(start_masks)
+            improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
+            if improved is None and target_drop == 2:
+                improved = self._phase_g_try_target_len(start_masks, len(best) - 1, round_budget)
+            if improved is None:
+                misses += 1
+                if misses >= 5:
+                    break
+                continue
+            if len(improved) < len(best):
+                best = improved
+                misses = 0
+                self._report(
+                    "optimize",
+                    f"Phase-I general-small improved to {len(best)} groups",
+                )
+            else:
+                misses += 1
+                if misses >= 5:
+                    break
+
+        return best
+
+    def _phase_i_full_budget_cap_sec(
+        self,
+        *,
+        remaining_sec: float,
+        hard_case: bool,
+        current_len: int,
+    ) -> float:
+        if remaining_sec <= 1.2:
+            return 0.0
+
+        if self.n < 16:
+            if self.j == self.k and not self._containment:
+                frac = 0.22 if hard_case else 0.18
+                cap = 22.0 if hard_case else 14.0
+                floor = 4.5
+            elif self._containment:
+                frac = 0.28 if hard_case else 0.22
+                cap = 28.0 if hard_case else 16.0
+                floor = 5.0
+            else:
+                frac = 0.16
+                cap = 10.0
+                floor = 3.5
+            budget = max(floor, min(cap, remaining_sec * frac))
+            if current_len <= 90:
+                budget = min(budget, 18.0 if hard_case else 12.0)
+            return max(0.0, min(remaining_sec - 0.8, budget))
+
+        frac = 0.52 if hard_case else 0.40
+        cap = 42.0 if hard_case else 22.0
+        floor = 7.0 if hard_case else 5.0
+        budget = max(floor, min(cap, remaining_sec * frac))
+        return max(0.0, min(remaining_sec - 0.8, budget))
+
+    def _phase_i_full_cp_sat_module(
+        self,
+        sol: list[int],
+        *,
+        hard_case: bool,
+    ) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 8:
+            return sol
+        expanded_n16_mid = (
+            self.n == 16
+            and self.j == self.k
+            and not self._containment
+            and self.num_cands <= 12_000
+            and self.num_targets <= 9_000
+        )
+        if (self.num_cands > 7_000 or self.num_targets > 8_000) and not expanded_n16_mid:
+            return sol
+
+        remaining = self._time_remaining_sec()
+        min_budget = 6.5 if hard_case else 4.5
+        if remaining is None or remaining < min_budget:
+            return sol
+        phase_budget = self._phase_i_full_budget_cap_sec(
+            remaining_sec=float(remaining),
+            hard_case=hard_case,
+            current_len=len(sol),
+        )
+        if phase_budget < 1.5:
+            return sol
+        phase_deadline = time.time() + phase_budget
+
+        cand_index = self._cand_index_map
+        selected_indices = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_indices) != len(sol):
+            return sol
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        rounds = 5 if hard_case else 3
+        if expanded_n16_mid:
+            rounds = min(rounds, 2)
+        if best_len < 40:
+            rounds = min(rounds, 2)
+        stalls = 0
+
+        for round_idx in range(rounds):
+            if time.time() >= phase_deadline:
+                break
+            run_remaining = self._time_remaining_sec()
+            if run_remaining is None or run_remaining < 3.0:
+                break
+            run_remaining = min(run_remaining, max(0.0, phase_deadline - time.time()))
+            if run_remaining < 2.2:
+                break
+            target_ub = best_len - 1
+            if target_ub < 1:
+                break
+
+            model = cp_model.CpModel()
+            vars_x = [model.NewBoolVar(f"xi_{i}") for i in range(self.num_cands)]
+            objective = sum(vars_x)
+            model.Add(objective <= target_ub)
+            for covering in self._inv_table:
+                model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+            model.Minimize(objective)
+            use_hints = stalls == 0 and round_idx == 0
+            if use_hints:
+                for ci in selected_indices:
+                    model.AddHint(vars_x[ci], 1)
+            elif selected_indices and hard_case:
+                hint_keep = max(8, int(len(selected_indices) * 0.6))
+                if hint_keep < len(selected_indices):
+                    hint_idx = random.sample(selected_indices, hint_keep)
+                else:
+                    hint_idx = list(selected_indices)
+                for ci in hint_idx:
+                    model.AddHint(vars_x[ci], 1)
+
+            if self.n < 16 and self.j == self.k and not self._containment:
+                seeds = [1, 17]
+                if run_remaining >= 12.0:
+                    seeds.append(29)
+            elif hard_case:
+                if expanded_n16_mid:
+                    seeds = [1, 17, 29]
+                else:
+                    seeds = [1, 17, 29, 43]
+            else:
+                seeds = [1, 17, 29]
+            if hard_case and run_remaining >= 28.0 and self.n >= 16:
+                seeds.append(59)
+            if run_remaining >= 28.0 and self.n >= 16:
+                seeds.append(47)
+
+            if expanded_n16_mid:
+                budget_cap = 18.0 if hard_case else 12.0
+                ratio = 0.42 if hard_case else 0.32
+            else:
+                budget_cap = 42.0 if hard_case else 22.0
+                ratio = 0.70 if hard_case else 0.50
+            if self.n < 16:
+                if self.j == self.k and not self._containment:
+                    budget_cap = min(budget_cap, 18.0 if hard_case else 10.0)
+                    ratio = min(ratio, 0.28 if hard_case else 0.20)
+                elif self._containment:
+                    budget_cap = min(budget_cap, 24.0 if hard_case else 12.0)
+                    ratio = min(ratio, 0.34 if hard_case else 0.24)
+                else:
+                    budget_cap = min(budget_cap, 10.0 if hard_case else 8.0)
+                    ratio = min(ratio, 0.18)
+            total_budget = float(min(budget_cap, max(3.0, run_remaining * ratio)))
+            per_run = max(2.0, total_budget / max(1, len(seeds)))
+            if hard_case:
+                per_run = max(4.0, per_run)
+
+            improved = False
+            for seed in seeds:
+                if time.time() >= phase_deadline:
+                    break
+                seed_remaining = self._time_remaining_sec()
+                if seed_remaining is None or seed_remaining < 2.0:
+                    break
+                seed_remaining = min(
+                    seed_remaining,
+                    max(0.0, phase_deadline - time.time()),
+                )
+                if seed_remaining < 1.3:
+                    break
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = float(
+                    min(per_run, max(1.5, seed_remaining - 0.7))
+                )
+                solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                solver.parameters.random_seed = seed
+                solver.parameters.randomize_search = True
+                status = solver.Solve(model)
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    continue
+
+                picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+                if len(picked) >= best_len:
+                    continue
+                candidate = [int(self.cand_masks[i]) for i in picked]
+                if not self._verify(candidate):
+                    continue
+
+                best_masks = candidate
+                best_len = len(best_masks)
+                selected_indices = picked
+                improved = True
+                self._report(
+                    "optimize",
+                    f"Phase-I full CP-SAT refined to {best_len} groups",
+                )
+                break
+
+            if not improved:
+                stalls += 1
+                if hard_case and stalls < 3:
+                    continue
+                if (not hard_case) and stalls < 2:
+                    continue
+                break
+            stalls = 0
+
+        return best_masks
+
+    def _phase_k_cluster_structural_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if self.n > 16:
+            return sol
+        if self.n == 16 and not self._is_n16_hard_cluster():
+            return sol
+        remaining = self._time_remaining_sec()
+        if remaining is None or remaining < 3.5:
+            return sol
+
+        best = list(sol)
+        if self.j == self.k and not self._containment and self.s == (self.k - 1):
+            before = len(best)
+            best = self._phase_k_jk_orbit_cp_sat_refine(best)
+            if self.n < 16:
+                return best
+            orbit_gain = before - len(best)
+            if orbit_gain < max(10, before // 9):
+                best = self._phase_k_jk_kminus1_domset_refine(best)
+            return best
+        if self._containment:
+            before = len(best)
+            best = self._phase_k_containment_orbit_cp_sat_refine(best)
+            orbit_gain = before - len(best)
+            if orbit_gain < max(10, before // 10):
+                best = self._phase_k_containment_iterative_sat_refine(best)
+            return best
+        if self.n < 16 and (not self._containment) and self.j < self.k:
+            best = self._phase_k_general_iterative_sat_refine(best)
+            return best
+        return best
+
+    def _rotate_mask(self, mask: int, shift: int) -> int:
+        if shift % self.n == 0:
+            return mask
+        out = 0
+        for e in mask_to_elements(mask):
+            out |= 1 << ((e + shift) % self.n)
+        return out
+
+    def _build_cyclic_orbits(self) -> list[list[int]]:
+        seen: set[int] = set()
+        orbits: list[list[int]] = []
+        for ci, mm in enumerate(self.cand_masks):
+            if ci in seen:
+                continue
+            mask = int(mm)
+            orbit_set: set[int] = set()
+            for shift in range(self.n):
+                rotated = self._rotate_mask(mask, shift)
+                idx = self._cand_index_map.get(rotated)
+                if idx is not None:
+                    orbit_set.add(int(idx))
+            if not orbit_set:
+                orbit_set.add(ci)
+            orbit = sorted(orbit_set)
+            for idx in orbit:
+                seen.add(idx)
+            orbits.append(orbit)
+        return orbits
+
+    def _phase_k_jk_orbit_cp_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self.j != self.k or self._containment or self.s != (self.k - 1):
+            return sol
+        if self.n > 16:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 20:
+            return sol
+        if not self._phase_c_has_time(3.5):
+            return sol
+
+        orbits = self._build_cyclic_orbits()
+        if len(orbits) >= self.num_cands:
+            return sol
+
+        orbit_of = np.full(self.num_cands, -1, dtype=np.int32)
+        orbit_sizes: list[int] = []
+        for oid, orbit in enumerate(orbits):
+            orbit_sizes.append(len(orbit))
+            for ci in orbit:
+                orbit_of[ci] = oid
+
+        # Build domination lists once (same logic as jk k-1 covering).
+        cand_index = self._cand_index_map
+        dom_orbits: list[list[int]] = []
+        for mask_uint in self.cand_masks:
+            tmask = int(mask_uint)
+            cover_orbits: set[int] = set()
+            self_idx = cand_index[tmask]
+            cover_orbits.add(int(orbit_of[self_idx]))
+            bits_in = mask_to_elements(tmask)
+            bit_in_set = set(bits_in)
+            bits_out = [e for e in range(self.n) if e not in bit_in_set]
+            for rem in bits_in:
+                rem_bit = 1 << rem
+                base = tmask & (~rem_bit)
+                for add in bits_out:
+                    mm = base | (1 << add)
+                    ci = cand_index.get(mm)
+                    if ci is not None:
+                        cover_orbits.add(int(orbit_of[ci]))
+            dom_orbits.append(sorted(cover_orbits))
+
+        best_len = len(sol)
+        ub = best_len - 1
+        rem = self._time_remaining_sec()
+        if rem is None or rem < 2.5:
+            return sol
+
+        model = cp_model.CpModel()
+        vars_y = [model.NewBoolVar(f"yo_{i}") for i in range(len(orbits))]
+        weighted = sum(int(orbit_sizes[i]) * vars_y[i] for i in range(len(orbits)))
+        model.Add(weighted <= ub)
+        for cover in dom_orbits:
+            model.AddBoolOr([vars_y[i] for i in cover])
+        model.Minimize(weighted)
+
+        per_run = min(16.0, max(4.0, rem * 0.42))
+        seeds = [1, 17, 29]
+        if rem >= 26.0:
+            seeds.extend([43, 59])
+
+        best_masks = list(sol)
+        for seed in seeds:
+            rem_seed = self._time_remaining_sec()
+            if rem_seed is None or rem_seed < 2.0:
+                break
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = float(
+                min(per_run, max(1.5, rem_seed - 0.6))
+            )
+            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            solver.parameters.random_seed = seed
+            solver.parameters.randomize_search = True
+            status = solver.Solve(model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                continue
+            picked_orbits = [i for i in range(len(orbits)) if solver.Value(vars_y[i]) == 1]
+            picked_idx: list[int] = []
+            for oid in picked_orbits:
+                picked_idx.extend(orbits[oid])
+            if len(picked_idx) >= best_len:
+                continue
+            candidate = [int(self.cand_masks[i]) for i in sorted(set(picked_idx))]
+            candidate = self._local_search(candidate)
+            if len(candidate) >= best_len:
+                continue
+            if not self._verify(candidate):
+                continue
+            best_masks = candidate
+            best_len = len(best_masks)
+            self._report(
+                "optimize",
+                f"Phase-K jk-orbit refined to {best_len} groups",
+            )
+            break
+
+        return best_masks
+
+    def _phase_k_containment_orbit_cp_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if not self._containment:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self.n > 16:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 24:
+            return sol
+        if not self._phase_c_has_time(3.5):
+            return sol
+
+        orbits = self._build_cyclic_orbits()
+        if len(orbits) >= self.num_cands:
+            return sol
+
+        orbit_of = np.full(self.num_cands, -1, dtype=np.int32)
+        orbit_sizes: list[int] = []
+        for oid, orbit in enumerate(orbits):
+            orbit_sizes.append(len(orbit))
+            for ci in orbit:
+                orbit_of[ci] = oid
+
+        target_cover_orbits: list[list[int]] = []
+        for covering in self._inv_table:
+            orbit_set = {int(orbit_of[int(ci)]) for ci in covering}
+            if not orbit_set:
+                return sol
+            target_cover_orbits.append(sorted(orbit_set))
+
+        best_len = len(sol)
+        ub = best_len - 1
+        rem = self._time_remaining_sec()
+        if rem is None or rem < 2.5:
+            return sol
+
+        model = cp_model.CpModel()
+        vars_y = [model.NewBoolVar(f"yc_{i}") for i in range(len(orbits))]
+        weighted = sum(int(orbit_sizes[i]) * vars_y[i] for i in range(len(orbits)))
+        model.Add(weighted <= ub)
+        for cover in target_cover_orbits:
+            model.AddBoolOr([vars_y[i] for i in cover])
+        model.Minimize(weighted)
+
+        per_run = min(16.0, max(3.5, rem * 0.42))
+        seeds = [1, 17, 29]
+        if rem >= 26.0:
+            seeds.extend([43, 59])
+
+        best_masks = list(sol)
+        for seed in seeds:
+            rem_seed = self._time_remaining_sec()
+            if rem_seed is None or rem_seed < 2.0:
+                break
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = float(
+                min(per_run, max(1.5, rem_seed - 0.6))
+            )
+            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            solver.parameters.random_seed = seed
+            solver.parameters.randomize_search = True
+            status = solver.Solve(model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                continue
+            picked_orbits = [i for i in range(len(orbits)) if solver.Value(vars_y[i]) == 1]
+            picked_idx: list[int] = []
+            for oid in picked_orbits:
+                picked_idx.extend(orbits[oid])
+            if len(picked_idx) >= best_len:
+                continue
+            candidate = [int(self.cand_masks[i]) for i in sorted(set(picked_idx))]
+            candidate = self._local_search(candidate)
+            if len(candidate) >= best_len:
+                continue
+            if not self._verify(candidate):
+                continue
+            best_masks = candidate
+            best_len = len(best_masks)
+            self._report(
+                "optimize",
+                f"Phase-K containment-orbit refined to {best_len} groups",
+            )
+            break
+
+        return best_masks
+
+    def _phase_k_jk_kminus1_domset_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self.j != self.k or self._containment or self.s != (self.k - 1):
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 12:
+            return sol
+        if self.num_cands > 12_000:
+            return sol
+        if not self._phase_c_has_time(3.5):
+            return sol
+
+        cand_index = self._cand_index_map
+        selected_idx = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_idx) != len(sol):
+            return sol
+
+        # Domination in Johnson graph J(n,k), radius=1 in swap distance.
+        dom_lists: list[list[int]] = []
+        for mask_uint in self.cand_masks:
+            tmask = int(mask_uint)
+            coverers = {cand_index[tmask]}
+            bits_in = mask_to_elements(tmask)
+            bit_in_set = set(bits_in)
+            bits_out = [e for e in range(self.n) if e not in bit_in_set]
+            for rem in bits_in:
+                rem_bit = 1 << rem
+                base = tmask & (~rem_bit)
+                for add in bits_out:
+                    add_bit = 1 << add
+                    mm = base | add_bit
+                    ci = cand_index.get(mm)
+                    if ci is not None:
+                        coverers.add(ci)
+            dom_lists.append(sorted(coverers))
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        ub = best_len - 1
+        miss = 0
+        while ub >= 1:
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 2.8:
+                break
+            if miss >= 2:
+                break
+
+            model = cp_model.CpModel()
+            vars_x = [model.NewBoolVar(f"xk_{i}") for i in range(self.num_cands)]
+            model.Add(sum(vars_x) <= ub)
+            for dom in dom_lists:
+                model.AddBoolOr([vars_x[i] for i in dom])
+
+            # 失败后切换为无hint，避免被当前解结构锁死。
+            if miss == 0 and selected_idx:
+                hint_keep = max(8, int(len(selected_idx) * 0.7))
+                if hint_keep < len(selected_idx):
+                    hint_idx = random.sample(selected_idx, hint_keep)
+                else:
+                    hint_idx = list(selected_idx)
+                for ci in hint_idx:
+                    model.AddHint(vars_x[ci], 1)
+
+            seeds = [1, 17, 29]
+            if rem >= 22.0:
+                seeds.extend([43, 59])
+            per_run = max(2.2, min(18.0, (rem * 0.72) / max(1, len(seeds))))
+            if miss > 0:
+                per_run = min(24.0, per_run * 1.35)
+
+            found = False
+            for seed in seeds:
+                rem_seed = self._time_remaining_sec()
+                if rem_seed is None or rem_seed < 2.0:
+                    break
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = float(
+                    min(per_run, max(1.3, rem_seed - 0.6))
+                )
+                solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                solver.parameters.random_seed = seed
+                solver.parameters.randomize_search = True
+                status = solver.Solve(model)
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    continue
+
+                picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+                if len(picked) >= best_len:
+                    continue
+                candidate = [int(self.cand_masks[i]) for i in picked]
+                if not self._verify(candidate):
+                    continue
+
+                best_masks = candidate
+                best_len = len(best_masks)
+                selected_idx = picked
+                ub = best_len - 1
+                miss = 0
+                found = True
+                self._report(
+                    "optimize",
+                    f"Phase-K jk-domset refined to {best_len} groups",
+                )
+                break
+
+            if not found:
+                miss += 1
+                if miss >= 3:
+                    break
+
+        return best_masks
+
+    def _phase_k_containment_iterative_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if not self._containment:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 16:
+            return sol
+        if self.num_cands > 10_000 or self.num_targets > 10_000:
+            return sol
+        if not self._phase_c_has_time(3.5):
+            return sol
+        rem0 = self._time_remaining_sec()
+        if rem0 is None or rem0 < 2.5:
+            return sol
+        phase_budget = min(20.0, max(6.0, rem0 * 0.26))
+        phase_deadline = time.time() + phase_budget
+
+        cand_index = self._cand_index_map
+        selected_idx = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_idx) != len(sol):
+            return sol
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        ub = best_len - 1
+        miss = 0
+        while ub >= 1:
+            if time.time() >= phase_deadline:
+                break
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 2.8:
+                break
+            rem = min(rem, max(0.0, phase_deadline - time.time()))
+            if rem < 2.0:
+                break
+            if miss >= 2:
+                break
+
+            model = cp_model.CpModel()
+            vars_x = [model.NewBoolVar(f"xc_{i}") for i in range(self.num_cands)]
+            model.Add(sum(vars_x) <= ub)
+            for covering in self._inv_table:
+                model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+
+            if miss == 0 and selected_idx:
+                hint_keep = max(10, int(len(selected_idx) * 0.65))
+                if hint_keep < len(selected_idx):
+                    hint_idx = random.sample(selected_idx, hint_keep)
+                else:
+                    hint_idx = list(selected_idx)
+                for ci in hint_idx:
+                    model.AddHint(vars_x[ci], 1)
+
+            seeds = [1, 17, 29]
+            if rem >= 20.0:
+                seeds.extend([43, 59])
+            per_run = max(2.0, min(16.0, (rem * 0.68) / max(1, len(seeds))))
+            if miss > 0:
+                per_run = min(22.0, per_run * 1.3)
+
+            found = False
+            for seed in seeds:
+                if time.time() >= phase_deadline:
+                    break
+                rem_seed = self._time_remaining_sec()
+                if rem_seed is None or rem_seed < 2.0:
+                    break
+                rem_seed = min(rem_seed, max(0.0, phase_deadline - time.time()))
+                if rem_seed < 1.3:
+                    break
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = float(
+                    min(per_run, max(1.3, rem_seed - 0.6))
+                )
+                solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                solver.parameters.random_seed = seed
+                solver.parameters.randomize_search = True
+                status = solver.Solve(model)
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    continue
+
+                picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+                if len(picked) >= best_len:
+                    continue
+                candidate = [int(self.cand_masks[i]) for i in picked]
+                if not self._verify(candidate):
+                    continue
+
+                best_masks = candidate
+                best_len = len(best_masks)
+                selected_idx = picked
+                ub = best_len - 1
+                miss = 0
+                found = True
+                self._report(
+                    "optimize",
+                    f"Phase-K containment SAT refined to {best_len} groups",
+                )
+                break
+
+            if not found:
+                miss += 1
+                if miss >= 3:
+                    break
+
+        return best_masks
+
+    def _phase_k_general_iterative_sat_refine(self, sol: list[int]) -> list[int]:
+        if cp_model is None:
+            return sol
+        if self._containment or self.j == self.k:
+            return sol
+        if self._inv_table is None:
+            return sol
+        if self._deadline_at is None:
+            return sol
+        if len(sol) < 10 or len(sol) > 120:
+            return sol
+        if self.num_cands > 8_000:
+            return sol
+        if not self._phase_c_has_time(2.8):
+            return sol
+        rem0 = self._time_remaining_sec()
+        if rem0 is None or rem0 < 2.2:
+            return sol
+        phase_budget = min(18.0, max(5.0, rem0 * 0.24))
+        phase_deadline = time.time() + phase_budget
+
+        cand_index = self._cand_index_map
+        selected_idx = [cand_index[m] for m in sol if m in cand_index]
+        if len(selected_idx) != len(sol):
+            return sol
+
+        best_masks = list(sol)
+        best_len = len(best_masks)
+        ub = best_len - 1
+        misses = 0
+        while ub >= 1:
+            if time.time() >= phase_deadline:
+                break
+            rem = self._time_remaining_sec()
+            if rem is None or rem < 2.5:
+                break
+            rem = min(rem, max(0.0, phase_deadline - time.time()))
+            if rem < 1.9:
+                break
+            if misses >= 2:
+                break
+
+            model = cp_model.CpModel()
+            vars_x = [model.NewBoolVar(f"xg_{i}") for i in range(self.num_cands)]
+            model.Add(sum(vars_x) <= ub)
+            for covering in self._inv_table:
+                model.AddBoolOr([vars_x[int(ci)] for ci in covering])
+
+            if misses == 0 and selected_idx:
+                for ci in selected_idx:
+                    model.AddHint(vars_x[ci], 1)
+
+            seeds = [1, 17, 29]
+            per_run = max(1.8, min(10.0, (rem * 0.52) / max(1, len(seeds))))
+            if misses > 0:
+                per_run = min(14.0, per_run * 1.3)
+
+            found = False
+            for seed in seeds:
+                if time.time() >= phase_deadline:
+                    break
+                rem_seed = self._time_remaining_sec()
+                if rem_seed is None or rem_seed < 1.8:
+                    break
+                rem_seed = min(rem_seed, max(0.0, phase_deadline - time.time()))
+                if rem_seed < 1.2:
+                    break
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = float(
+                    min(per_run, max(1.2, rem_seed - 0.5))
+                )
+                solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+                solver.parameters.random_seed = seed
+                solver.parameters.randomize_search = True
+                status = solver.Solve(model)
+                if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    continue
+
+                picked = [i for i in range(self.num_cands) if solver.Value(vars_x[i]) == 1]
+                if len(picked) >= best_len:
+                    continue
+                candidate = [int(self.cand_masks[i]) for i in picked]
+                if not self._verify(candidate):
+                    continue
+
+                best_masks = candidate
+                best_len = len(best_masks)
+                selected_idx = picked
+                ub = best_len - 1
+                misses = 0
+                found = True
+                self._report(
+                    "optimize",
+                    f"Phase-K general SAT refined to {best_len} groups",
+                )
+                break
+
+            if not found:
+                misses += 1
+                if misses >= 3:
+                    break
+
+        return best_masks
 
     def _destroy_repair_order(self, sol: list[int]) -> list[int]:
         cov_count = np.zeros(self.num_targets, dtype=np.int32)
@@ -3013,160 +5398,3 @@ class CoveringDesignSolver:
         if self._target_has_elem is None:
             return None
         return self._target_has_elem[uncovered].sum(axis=0, dtype=np.int64)
-
-    # ------------------------------------------------------------------
-    # CP-SAT Solver
-    # ------------------------------------------------------------------
-
-    def _should_try_cpsat(self, solution: list[int]) -> bool:
-        """判断是否应该尝试 CP-SAT"""
-        # 只对 j=k 的问题使用
-        if self.j != self.k:
-            return False
-        # 只对 n>12 的问题使用
-        if self.n <= 12:
-            return False
-        # 只对非包含覆盖问题使用
-        if self._containment:
-            return False
-        # 需要有覆盖表
-        if self._cov_table is None:
-            return False
-        # 解的大小要合理
-        if len(solution) < 10 or len(solution) > 100:
-            return False
-        # 限制问题规模（避免 CP-SAT 构建模型太慢）
-        if self.num_cands > 2000 or self.num_targets > 2000:
-            return False
-        # 需要有剩余时间
-        remaining = self._time_remaining_sec()
-        if remaining is not None and remaining < 30.0:
-            return False
-        return True
-
-    def _cpsat_solve(self, initial_solution: list[int]) -> list[int] | None:
-        """使用 CP-SAT 求解"""
-        try:
-            from cpsat_solver import CPSATSolver
-            
-            # 计算时间预算
-            remaining = self._time_remaining_sec()
-            if remaining is not None:
-                time_limit = min(60.0, remaining * 0.4)
-            else:
-                time_limit = 60.0
-            
-            self._report("cpsat", f"尝试 CP-SAT 求解 (时间限制 {time_limit:.1f}s)")
-            
-            # 创建 CP-SAT 求解器
-            cpsat_solver = CPSATSolver(
-                cand_masks=self.cand_masks,
-                target_masks=self.target_masks,
-                s=self.s,
-                cov_table=self._cov_table,
-                cancel_fn=self._cancel,
-                progress_fn=lambda msg: self._report("cpsat", msg),
-            )
-            
-            # 运行 CP-SAT
-            result = cpsat_solver.solve(
-                initial_solution=initial_solution,
-                time_limit=time_limit,
-            )
-            
-            if result and len(result) < len(initial_solution):
-                self._report("cpsat", f"CP-SAT 改进: {len(initial_solution)} → {len(result)} 组")
-                return result
-            else:
-                self._report("cpsat", "CP-SAT 未找到更好的解")
-                return None
-        
-        except ImportError:
-            self._report("cpsat", "CP-SAT 不可用（需要安装 ortools）")
-            return None
-        except Exception as e:
-            self._report("cpsat", f"CP-SAT 失败: {e}")
-            return None
-
-    # ------------------------------------------------------------------
-    # Genetic Algorithm
-    # ------------------------------------------------------------------
-
-    def _should_try_genetic_algorithm(self, solution: list[int]) -> bool:
-        """判断是否应该尝试遗传算法"""
-        # 只对 j=k 且 n>12 的问题使用
-        if self.j != self.k:
-            return False
-        if self.n <= 12:
-            return False
-        # 只对非包含覆盖问题使用
-        if self._containment:
-            return False
-        # 需要有覆盖表
-        if self._cov_table is None or self._inv_table is None:
-            return False
-        # 解的大小要合理（不要太小或太大）
-        if len(solution) < 10 or len(solution) > 200:
-            return False
-        # 需要有剩余时间
-        remaining = self._time_remaining_sec()
-        if remaining is not None and remaining < 20.0:
-            return False
-        return True
-
-    def _genetic_algorithm_improve(self, solution: list[int]) -> list[int] | None:
-        """使用遗传算法改进解"""
-        try:
-            from genetic_solver import GeneticSolver
-            
-            # 计算时间预算
-            remaining = self._time_remaining_sec()
-            if remaining is not None:
-                time_budget = min(30.0, remaining * 0.5)
-            else:
-                time_budget = 30.0
-            
-            # 根据问题规模调整参数
-            # 对于 j=k 的情况，增加种群和代数以获得更好的解
-            if self.n <= 15:
-                pop_size = 30
-                generations = 80
-            elif self.n <= 18:
-                pop_size = 25
-                generations = 60
-            else:
-                pop_size = 20
-                generations = 50
-            
-            self._report("ga", f"尝试遗传算法改进 (j=k 专用, 预算 {time_budget:.1f}s)")
-            
-            # 创建遗传算法求解器
-            ga_solver = GeneticSolver(
-                cand_masks=self.cand_masks,
-                target_masks=self.target_masks,
-                s=self.s,
-                cov_table=self._cov_table,
-                inv_table=self._inv_table,
-                verify_fn=self._verify,
-                cancel_fn=self._cancel,
-                progress_fn=lambda msg: self._report("ga", msg),
-            )
-            
-            # 运行遗传算法
-            result = ga_solver.solve(
-                initial_solution=solution,
-                time_budget=time_budget,
-                pop_size=pop_size,
-                generations=generations,
-            )
-            
-            if result and len(result) < len(solution):
-                self._report("ga", f"遗传算法改进: {len(solution)} → {len(result)} 组")
-                return result
-            else:
-                self._report("ga", "遗传算法未找到更好的解")
-                return None
-        
-        except Exception as e:
-            self._report("ga", f"遗传算法失败: {e}")
-            return None
