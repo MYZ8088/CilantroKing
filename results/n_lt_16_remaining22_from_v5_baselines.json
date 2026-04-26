@@ -1,0 +1,205 @@
+{
+  "generated_at": "auto",
+  "source": "results/n_lt_16_remaining24_after_opt_v5.json",
+  "case_count": 22,
+  "cases": [
+    {
+      "id": "L_13_6_5_5",
+      "n": 13,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 245,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=05"
+    },
+    {
+      "id": "L_13_6_6_5",
+      "n": 13,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 61,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05"
+    },
+    {
+      "id": "L_13_7_5_5",
+      "n": 13,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 78,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05"
+    },
+    {
+      "id": "L_13_7_7_6",
+      "n": 13,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 61,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06"
+    },
+    {
+      "id": "L_14_5_5_4",
+      "n": 14,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 69,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=05&t=04"
+    },
+    {
+      "id": "L_14_6_4_4",
+      "n": 14,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 80,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=04&t=04"
+    },
+    {
+      "id": "L_14_6_5_5",
+      "n": 14,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 371,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=05"
+    },
+    {
+      "id": "L_14_6_6_5",
+      "n": 14,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 98,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05"
+    },
+    {
+      "id": "L_14_7_5_5",
+      "n": 14,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 138,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05"
+    },
+    {
+      "id": "L_14_7_6_5",
+      "n": 14,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 36,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=05"
+    },
+    {
+      "id": "L_14_7_6_6",
+      "n": 14,
+      "k": 7,
+      "j": 6,
+      "s": 6,
+      "baseline_blocks": 501,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=06"
+    },
+    {
+      "id": "L_14_7_7_6",
+      "n": 14,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 100,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06"
+    },
+    {
+      "id": "L_15_5_5_4",
+      "n": 15,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 95,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=05&t=04"
+    },
+    {
+      "id": "L_15_6_4_4",
+      "n": 15,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 117,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=04&t=04"
+    },
+    {
+      "id": "L_15_6_5_4",
+      "n": 15,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 40,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=04"
+    },
+    {
+      "id": "L_15_6_5_5",
+      "n": 15,
+      "k": 6,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 578,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=05"
+    },
+    {
+      "id": "L_15_6_6_5",
+      "n": 15,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 142,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05"
+    },
+    {
+      "id": "L_15_7_5_4",
+      "n": 15,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 20,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=04"
+    },
+    {
+      "id": "L_15_7_5_5",
+      "n": 15,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 189,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05"
+    },
+    {
+      "id": "L_15_7_6_5",
+      "n": 15,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 58,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=05"
+    },
+    {
+      "id": "L_15_7_6_6",
+      "n": 15,
+      "k": 7,
+      "j": 6,
+      "s": 6,
+      "baseline_blocks": 817,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=06"
+    },
+    {
+      "id": "L_15_7_7_6",
+      "n": 15,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 180,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06"
+    }
+  ]
+}

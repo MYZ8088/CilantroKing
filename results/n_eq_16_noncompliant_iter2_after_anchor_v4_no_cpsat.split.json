@@ -1,0 +1,505 @@
+{
+  "generated_at": "2026-04-25 10:33:08",
+  "source_json": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_noncompliant_iter2_after_anchor_v4_no_cpsat.json",
+  "batch_n_lt_16": {
+    "label": "n<16",
+    "summary": {
+      "total_cases": 0,
+      "compliant_count": 0,
+      "non_compliant_count": 0,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 0,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 0.0
+    },
+    "avg_gap_ratio": null,
+    "median_gap_ratio": null,
+    "avg_gap_ratio_non_compliant": null,
+    "median_gap_ratio_non_compliant": null,
+    "avg_elapsed_sec": null,
+    "median_elapsed_sec": null,
+    "avg_first_legal_elapsed_sec": null,
+    "family_stats": {},
+    "worst_gap_top15": [],
+    "slowest_top15": []
+  },
+  "batch_n_ge_16_lt_18": {
+    "label": "16<=n<18",
+    "summary": {
+      "total_cases": 18,
+      "compliant_count": 4,
+      "non_compliant_count": 14,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 14,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 1021.548386
+    },
+    "avg_gap_ratio": 0.146266,
+    "median_gap_ratio": 0.16886,
+    "avg_gap_ratio_non_compliant": 0.182342,
+    "median_gap_ratio_non_compliant": 0.182515,
+    "avg_elapsed_sec": 56.752688,
+    "median_elapsed_sec": 59.802152,
+    "avg_first_legal_elapsed_sec": 2.641809,
+    "family_stats": {
+      "containment_s_eq_j": {
+        "total": 4,
+        "compliant": 0,
+        "non_compliant": 4,
+        "quality_fail": 4,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.180417,
+        "avg_elapsed_sec": 33.395816
+      },
+      "general_noncontain": {
+        "total": 6,
+        "compliant": 2,
+        "non_compliant": 4,
+        "quality_fail": 4,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.120628,
+        "avg_elapsed_sec": 44.888678
+      },
+      "j_eq_k_noncontain_medium_n": {
+        "total": 8,
+        "compliant": 2,
+        "non_compliant": 6,
+        "quality_fail": 6,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.148419,
+        "avg_elapsed_sec": 77.329132
+      }
+    },
+    "worst_gap_top15": [
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 35.077349,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 371,
+        "gap_ratio": 0.266212,
+        "elapsed_sec": 88.013207,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 350,
+        "gap_ratio": 0.236749,
+        "elapsed_sec": 35.572003,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 267,
+        "gap_ratio": 0.197309,
+        "elapsed_sec": 47.221916,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_4_3",
+        "n": 16,
+        "k": 5,
+        "j": 4,
+        "s": 3,
+        "baseline_blocks": 31,
+        "solver_blocks": 37,
+        "gap_ratio": 0.193548,
+        "elapsed_sec": 7.124621,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 37,
+        "gap_ratio": 0.193548,
+        "elapsed_sec": 99.949889,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 72.382388,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 155,
+        "gap_ratio": 0.174242,
+        "elapsed_sec": 88.863444,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 89,
+        "gap_ratio": 0.171053,
+        "elapsed_sec": 24.777044,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_4",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 4,
+        "baseline_blocks": 6,
+        "solver_blocks": 7,
+        "gap_ratio": 0.166667,
+        "elapsed_sec": 96.371705,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 60,
+        "gap_ratio": 0.153846,
+        "elapsed_sec": 24.814131,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_3_3",
+        "n": 16,
+        "k": 5,
+        "j": 3,
+        "s": 3,
+        "baseline_blocks": 65,
+        "solver_blocks": 73,
+        "gap_ratio": 0.123077,
+        "elapsed_sec": 0.85183,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_4_4_3",
+        "n": 16,
+        "k": 4,
+        "j": 4,
+        "s": 3,
+        "baseline_blocks": 64,
+        "solver_blocks": 71,
+        "gap_ratio": 0.109375,
+        "elapsed_sec": 35.643954,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_4",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 28,
+        "solver_blocks": 31,
+        "gap_ratio": 0.107143,
+        "elapsed_sec": 31.267037,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ],
+    "slowest_top15": [
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 37,
+        "gap_ratio": 0.193548,
+        "elapsed_sec": 99.949889,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_4",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 4,
+        "baseline_blocks": 6,
+        "solver_blocks": 7,
+        "gap_ratio": 0.166667,
+        "elapsed_sec": 96.371705,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 155,
+        "gap_ratio": 0.174242,
+        "elapsed_sec": 88.863444,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 371,
+        "gap_ratio": 0.266212,
+        "elapsed_sec": 88.013207,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 72.382388,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 267,
+        "gap_ratio": 0.197309,
+        "elapsed_sec": 47.221916,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_4_4_3",
+        "n": 16,
+        "k": 4,
+        "j": 4,
+        "s": 3,
+        "baseline_blocks": 64,
+        "solver_blocks": 71,
+        "gap_ratio": 0.109375,
+        "elapsed_sec": 35.643954,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 350,
+        "gap_ratio": 0.236749,
+        "elapsed_sec": 35.572003,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 35.077349,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_4",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 28,
+        "solver_blocks": 31,
+        "gap_ratio": 0.107143,
+        "elapsed_sec": 31.267037,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 60,
+        "gap_ratio": 0.153846,
+        "elapsed_sec": 24.814131,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 89,
+        "gap_ratio": 0.171053,
+        "elapsed_sec": 24.777044,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_4_3",
+        "n": 16,
+        "k": 5,
+        "j": 4,
+        "s": 3,
+        "baseline_blocks": 31,
+        "solver_blocks": 37,
+        "gap_ratio": 0.193548,
+        "elapsed_sec": 7.124621,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_3_3",
+        "n": 16,
+        "k": 5,
+        "j": 3,
+        "s": 3,
+        "baseline_blocks": 65,
+        "solver_blocks": 73,
+        "gap_ratio": 0.123077,
+        "elapsed_sec": 0.85183,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ]
+  }
+}

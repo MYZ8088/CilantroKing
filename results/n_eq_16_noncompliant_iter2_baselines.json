@@ -1,0 +1,169 @@
+{
+  "generated_at": "2026-04-25 03:16:29",
+  "source": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_after_opt_iter2.json",
+  "description": "n=16 noncompliant cases extracted from iter2 for targeted regression",
+  "cases": [
+    {
+      "id": "L_16_4_4_3",
+      "n": 16,
+      "k": 4,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 64,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=04&m=04&t=03"
+    },
+    {
+      "id": "L_16_5_3_3",
+      "n": 16,
+      "k": 5,
+      "j": 3,
+      "s": 3,
+      "baseline_blocks": 65,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=03&t=03"
+    },
+    {
+      "id": "L_16_5_4_3",
+      "n": 16,
+      "k": 5,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 31,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=04&t=03"
+    },
+    {
+      "id": "L_16_5_5_3",
+      "n": 16,
+      "k": 5,
+      "j": 5,
+      "s": 3,
+      "baseline_blocks": 14,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=05&t=03"
+    },
+    {
+      "id": "L_16_5_5_4",
+      "n": 16,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 132,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=05&t=04"
+    },
+    {
+      "id": "L_16_6_4_3",
+      "n": 16,
+      "k": 6,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 16,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=04&t=03"
+    },
+    {
+      "id": "L_16_6_4_4",
+      "n": 16,
+      "k": 6,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 152,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=04&t=04"
+    },
+    {
+      "id": "L_16_6_5_4",
+      "n": 16,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 52,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=04"
+    },
+    {
+      "id": "L_16_6_6_4",
+      "n": 16,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 25,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=04"
+    },
+    {
+      "id": "L_16_6_6_5",
+      "n": 16,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 223,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05"
+    },
+    {
+      "id": "L_16_7_4_4",
+      "n": 16,
+      "k": 7,
+      "j": 4,
+      "s": 4,
+      "baseline_blocks": 76,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=04&t=04"
+    },
+    {
+      "id": "L_16_7_5_4",
+      "n": 16,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 28,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=04"
+    },
+    {
+      "id": "L_16_7_5_5",
+      "n": 16,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "baseline_blocks": 283,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05"
+    },
+    {
+      "id": "L_16_7_6_4",
+      "n": 16,
+      "k": 7,
+      "j": 6,
+      "s": 4,
+      "baseline_blocks": 13,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=04"
+    },
+    {
+      "id": "L_16_7_6_5",
+      "n": 16,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 78,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=05"
+    },
+    {
+      "id": "L_16_7_7_4",
+      "n": 16,
+      "k": 7,
+      "j": 7,
+      "s": 4,
+      "baseline_blocks": 6,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=04"
+    },
+    {
+      "id": "L_16_7_7_5",
+      "n": 16,
+      "k": 7,
+      "j": 7,
+      "s": 5,
+      "baseline_blocks": 31,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=05"
+    },
+    {
+      "id": "L_16_7_7_6",
+      "n": 16,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "baseline_blocks": 293,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06"
+    }
+  ]
+}

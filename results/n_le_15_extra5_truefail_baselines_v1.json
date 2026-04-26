@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-04-25",
+  "source": "subset",
+  "case_count": 5,
+  "cases": [
+    {
+      "id": "L_13_5_5_4",
+      "n": 13,
+      "k": 5,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 48,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=05&m=05&t=04",
+      "source_kind": "coveringrepo"
+    },
+    {
+      "id": "L_14_6_5_4",
+      "n": 14,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 29,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=04",
+      "source_kind": "coveringrepo"
+    },
+    {
+      "id": "L_14_7_6_5",
+      "n": 14,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "baseline_blocks": 36,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=05",
+      "source_kind": "coveringrepo"
+    },
+    {
+      "id": "L_15_6_4_3",
+      "n": 15,
+      "k": 6,
+      "j": 4,
+      "s": 3,
+      "baseline_blocks": 14,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=04&t=03",
+      "source_kind": "coveringrepo"
+    },
+    {
+      "id": "L_15_7_5_4",
+      "n": 15,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 20,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=04",
+      "source_kind": "coveringrepo"
+    }
+  ]
+}

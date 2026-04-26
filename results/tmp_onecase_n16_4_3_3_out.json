@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-04-25 20:22:12",
+  "config": {
+    "n_min": 16,
+    "n_max_exclusive": 17,
+    "timeout_sec": 120.0,
+    "hard_timeout_sec": 125.0,
+    "num_attempts": 3,
+    "quality_tolerance_ratio": 0.1,
+    "judge_rule": "compliant iff runtime<=120s AND solver_blocks<=baseline*1.10 AND solver_verified",
+    "ck_use_gpu": 1,
+    "ck_skip_gpu_probe": true,
+    "ck_n16_anchor_module": 1,
+    "ck_disable_cpsat": 1,
+    "ck_solver_module": "solver_n16_isolated",
+    "python_exe": "C:\\Users\\asus\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "workers": 2
+  },
+  "baseline_file": "D:\\ai2026.4\\CilantroKing\\results\\tmp_onecase_n16_4_3_3.json",
+  "summary": {
+    "total_cases": 1,
+    "compliant_count": 1,
+    "non_compliant_count": 0,
+    "runtime_fail_count": 0,
+    "quality_fail_count": 0,
+    "verify_fail_count": 0,
+    "status_timeout_count": 0,
+    "status_error_count": 0,
+    "elapsed_total_sec": 12.791845
+  },
+  "reason_counter": {},
+  "by_n": [
+    {
+      "n": 16,
+      "total": 1,
+      "compliant": 1,
+      "non_compliant": 0,
+      "quality_fail": 0,
+      "runtime_fail": 0,
+      "verify_fail": 0,
+      "avg_gap_ratio": 0.0,
+      "avg_elapsed_sec": 12.791845
+    }
+  ],
+  "elapsed_total_wall_sec": 15.908811,
+  "cases": [
+    {
+      "id": "L_16_4_3_3",
+      "n": 16,
+      "k": 4,
+      "j": 3,
+      "s": 3,
+      "family": "containment_s_eq_j",
+      "baseline_blocks": 140,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=04&m=03&t=03",
+      "status": "ok",
+      "solver_blocks": 140,
+      "gap_ratio": 0.0,
+      "abs_gap_ratio": 0.0,
+      "quality_ratio_to_baseline": 1.0,
+      "elapsed_sec": 12.791845,
+      "first_legal_elapsed_sec": 0.036074,
+      "runtime_for_judge_sec": 12.791845,
+      "runtime_ok": true,
+      "quality_ok": true,
+      "solver_verified": true,
+      "verified_ok": true,
+      "compliant": true,
+      "error": null,
+      "num_targets": 560,
+      "num_cands": 1820,
+      "interaction_scale": 1019200,
+      "non_compliant_reasons": []
+    }
+  ]
+}

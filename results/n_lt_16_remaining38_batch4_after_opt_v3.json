@@ -1,0 +1,318 @@
+{
+  "generated_at": "2026-04-25 01:12:32",
+  "config": {
+    "timeout_sec": 120.0,
+    "num_attempts": 3,
+    "base_seed": 20260424,
+    "max_cases": null
+  },
+  "source_baseline_file": "results\\n_lt_16_remaining38_batch4_baselines.json",
+  "summary": {
+    "total_cases": 8,
+    "over_10_percent_count": 6,
+    "needs_optimization_count": 6,
+    "better_than_baseline_count": 0,
+    "better_than_baseline_over_10_count": 0,
+    "all_results_verified_count": 8,
+    "unverified_case_count": 0,
+    "optimization_buckets": {
+      "j_eq_k_noncontain_medium_n": {
+        "count": 2,
+        "avg_gap_ratio": 0.253991,
+        "max_gap_ratio": 0.274648,
+        "cases": [
+          "L_15_6_6_5",
+          "L_15_7_7_6"
+        ]
+      },
+      "general_noncontain": {
+        "count": 2,
+        "avg_gap_ratio": 0.135345,
+        "max_gap_ratio": 0.15,
+        "cases": [
+          "L_15_7_5_4",
+          "L_15_7_6_5"
+        ]
+      },
+      "containment_s_eq_j": {
+        "count": 2,
+        "avg_gap_ratio": 0.242019,
+        "max_gap_ratio": 0.269841,
+        "cases": [
+          "L_15_7_5_5",
+          "L_15_7_6_6"
+        ]
+      }
+    },
+    "worst_cases_top30": [
+      {
+        "id": "L_15_6_6_5",
+        "n": 15,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 142,
+        "solver_blocks": 181,
+        "gap_ratio": 0.274648,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_15_7_5_5",
+        "n": 15,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 189,
+        "solver_blocks": 240,
+        "gap_ratio": 0.269841,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_15_7_7_6",
+        "n": 15,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 180,
+        "solver_blocks": 222,
+        "gap_ratio": 0.233333,
+        "family": "j_eq_k_noncontain_medium_n"
+      },
+      {
+        "id": "L_15_7_6_6",
+        "n": 15,
+        "k": 7,
+        "j": 6,
+        "s": 6,
+        "baseline_blocks": 817,
+        "solver_blocks": 992,
+        "gap_ratio": 0.214198,
+        "family": "containment_s_eq_j"
+      },
+      {
+        "id": "L_15_7_5_4",
+        "n": 15,
+        "k": 7,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 20,
+        "solver_blocks": 23,
+        "gap_ratio": 0.15,
+        "family": "general_noncontain"
+      },
+      {
+        "id": "L_15_7_6_5",
+        "n": 15,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 58,
+        "solver_blocks": 65,
+        "gap_ratio": 0.12069,
+        "family": "general_noncontain"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "L_15_6_6_4",
+      "n": 15,
+      "k": 6,
+      "j": 6,
+      "s": 4,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 19,
+      "solver_blocks": 19,
+      "elapsed_sec": 119.375353,
+      "first_legal_elapsed_sec": 6.356983,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.0,
+      "abs_gap_ratio": 0.0,
+      "over_10_percent": false,
+      "worse_than_baseline": false,
+      "better_than_baseline": false,
+      "needs_optimization": false,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=04",
+      "proof": null
+    },
+    {
+      "id": "L_15_6_6_5",
+      "n": 15,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 142,
+      "solver_blocks": 181,
+      "elapsed_sec": 119.381174,
+      "first_legal_elapsed_sec": 0.748026,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.274648,
+      "abs_gap_ratio": 0.274648,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    },
+    {
+      "id": "L_15_7_5_4",
+      "n": 15,
+      "k": 7,
+      "j": 5,
+      "s": 4,
+      "family": "general_noncontain",
+      "baseline_blocks": 20,
+      "solver_blocks": 23,
+      "elapsed_sec": 118.353642,
+      "first_legal_elapsed_sec": 1.448429,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.15,
+      "abs_gap_ratio": 0.15,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=04",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    },
+    {
+      "id": "L_15_7_5_5",
+      "n": 15,
+      "k": 7,
+      "j": 5,
+      "s": 5,
+      "family": "containment_s_eq_j",
+      "baseline_blocks": 189,
+      "solver_blocks": 240,
+      "elapsed_sec": 119.370136,
+      "first_legal_elapsed_sec": 0.335834,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.269841,
+      "abs_gap_ratio": 0.269841,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=05&t=05",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    },
+    {
+      "id": "L_15_7_6_5",
+      "n": 15,
+      "k": 7,
+      "j": 6,
+      "s": 5,
+      "family": "general_noncontain",
+      "baseline_blocks": 58,
+      "solver_blocks": 65,
+      "elapsed_sec": 119.442407,
+      "first_legal_elapsed_sec": 1.528373,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.12069,
+      "abs_gap_ratio": 0.12069,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=05",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    },
+    {
+      "id": "L_15_7_6_6",
+      "n": 15,
+      "k": 7,
+      "j": 6,
+      "s": 6,
+      "family": "containment_s_eq_j",
+      "baseline_blocks": 817,
+      "solver_blocks": 992,
+      "elapsed_sec": 119.523626,
+      "first_legal_elapsed_sec": 0.353126,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.214198,
+      "abs_gap_ratio": 0.214198,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=06&t=06",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    },
+    {
+      "id": "L_15_7_7_5",
+      "n": 15,
+      "k": 7,
+      "j": 7,
+      "s": 5,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 24,
+      "solver_blocks": 26,
+      "elapsed_sec": 119.4471,
+      "first_legal_elapsed_sec": 3.625154,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.083333,
+      "abs_gap_ratio": 0.083333,
+      "over_10_percent": false,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": false,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=05",
+      "proof": null
+    },
+    {
+      "id": "L_15_7_7_6",
+      "n": 15,
+      "k": 7,
+      "j": 7,
+      "s": 6,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 180,
+      "solver_blocks": 222,
+      "elapsed_sec": 119.427773,
+      "first_legal_elapsed_sec": 1.223228,
+      "solver_verified": true,
+      "independent_verified": true,
+      "gap_ratio": 0.233333,
+      "abs_gap_ratio": 0.233333,
+      "over_10_percent": true,
+      "worse_than_baseline": true,
+      "better_than_baseline": false,
+      "needs_optimization": true,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=07&m=07&t=06",
+      "proof": {
+        "required": false,
+        "solver_verified": true,
+        "independent_verified": true
+      }
+    }
+  ]
+}

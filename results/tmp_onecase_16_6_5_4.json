@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-04-25 03:16:29",
+  "source": "tmp",
+  "cases": [
+    {
+      "id": "L_16_6_5_4",
+      "n": 16,
+      "k": 6,
+      "j": 5,
+      "s": 4,
+      "baseline_blocks": 52,
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=05&t=04"
+    }
+  ]
+}
