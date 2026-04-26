@@ -1,0 +1,355 @@
+{
+  "generated_at": "2026-04-26 12:49:51",
+  "source_json": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_remaining13_after_gpu_envfix_v11_seed18_754.json",
+  "batch_n_lt_16": {
+    "label": "n<16",
+    "summary": {
+      "total_cases": 0,
+      "compliant_count": 0,
+      "non_compliant_count": 0,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 0,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 0.0
+    },
+    "avg_gap_ratio": null,
+    "median_gap_ratio": null,
+    "avg_gap_ratio_non_compliant": null,
+    "median_gap_ratio_non_compliant": null,
+    "avg_elapsed_sec": null,
+    "median_elapsed_sec": null,
+    "avg_first_legal_elapsed_sec": null,
+    "family_stats": {},
+    "worst_gap_top15": [],
+    "slowest_top15": []
+  },
+  "batch_n_ge_16_lt_18": {
+    "label": "16<=n<18",
+    "summary": {
+      "total_cases": 13,
+      "compliant_count": 4,
+      "non_compliant_count": 9,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 9,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 1243.588849
+    },
+    "avg_gap_ratio": 0.162071,
+    "median_gap_ratio": 0.179372,
+    "avg_gap_ratio_non_compliant": 0.205493,
+    "median_gap_ratio_non_compliant": 0.190789,
+    "avg_elapsed_sec": 95.660681,
+    "median_elapsed_sec": 114.948794,
+    "avg_first_legal_elapsed_sec": 8.214729,
+    "family_stats": {
+      "containment_s_eq_j": {
+        "total": 4,
+        "compliant": 1,
+        "non_compliant": 3,
+        "quality_fail": 3,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.170319,
+        "avg_elapsed_sec": 88.57943
+      },
+      "general_noncontain": {
+        "total": 3,
+        "compliant": 1,
+        "non_compliant": 2,
+        "quality_fail": 2,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.158425,
+        "avg_elapsed_sec": 82.60078
+      },
+      "j_eq_k_noncontain_medium_n": {
+        "total": 6,
+        "compliant": 2,
+        "non_compliant": 4,
+        "quality_fail": 4,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.158395,
+        "avg_elapsed_sec": 106.911465
+      }
+    },
+    "worst_gap_top15": [
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 372,
+        "gap_ratio": 0.269625,
+        "elapsed_sec": 115.271443,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 114.631531,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 351,
+        "gap_ratio": 0.240283,
+        "elapsed_sec": 115.079265,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 38,
+        "gap_ratio": 0.225806,
+        "elapsed_sec": 116.408358,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 115.615131,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 156,
+        "gap_ratio": 0.181818,
+        "elapsed_sec": 116.43459,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 263,
+        "gap_ratio": 0.179372,
+        "elapsed_sec": 114.948794,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 88,
+        "gap_ratio": 0.157895,
+        "elapsed_sec": 101.074583,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 59,
+        "gap_ratio": 0.134615,
+        "elapsed_sec": 50.41745,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ],
+    "slowest_top15": [
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 156,
+        "gap_ratio": 0.181818,
+        "elapsed_sec": 116.43459,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 38,
+        "gap_ratio": 0.225806,
+        "elapsed_sec": 116.408358,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 115.615131,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 372,
+        "gap_ratio": 0.269625,
+        "elapsed_sec": 115.271443,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 351,
+        "gap_ratio": 0.240283,
+        "elapsed_sec": 115.079265,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 263,
+        "gap_ratio": 0.179372,
+        "elapsed_sec": 114.948794,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 114.631531,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 88,
+        "gap_ratio": 0.157895,
+        "elapsed_sec": 101.074583,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 59,
+        "gap_ratio": 0.134615,
+        "elapsed_sec": 50.41745,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ]
+  }
+}

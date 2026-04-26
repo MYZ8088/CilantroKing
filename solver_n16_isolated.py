@@ -423,6 +423,7 @@ class CoveringDesignSolver:
         self._n16_anchor_module_enabled = bool(_env_int("CK_N16_ANCHOR_MODULE", 0))
         self._n16_case_module_enabled = bool(_env_int("CK_N16_CASE_MODULE", 1))
         self._n15_hardcase_module_enabled = bool(_env_int("CK_N15_HARDCASE_MODULE", 1))
+        self._n16_hard_phase_g_boost = bool(_env_int("CK_N16_HARD_PHASE_G_BOOST", 0))
 
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
@@ -3769,6 +3770,23 @@ class CoveringDesignSolver:
         else:
             top_k = 96 if self.num_cands >= 2000 else 64
             sample_size = 20
+        hard_phase_boost = bool(self._n16_hard_phase_g_boost and self._is_n16_hard_cluster())
+        if hard_phase_boost:
+            if target_len >= 150:
+                max_restarts = max(max_restarts, 40)
+                max_steps = max(max_steps, 4200)
+                top_k = max(top_k, 224 if self.num_cands >= 2000 else 176)
+                sample_size = max(sample_size, 44)
+            elif target_len >= 80:
+                max_restarts = max(max_restarts, 34)
+                max_steps = max(max_steps, 3400)
+                top_k = max(top_k, 168 if self.num_cands >= 2000 else 116)
+                sample_size = max(sample_size, 34)
+            else:
+                max_restarts = max(max_restarts, 20)
+                max_steps = max(max_steps, 2200)
+                top_k = max(top_k, 120 if self.num_cands >= 2000 else 84)
+                sample_size = max(sample_size, 24)
         weight = self._target_weights
         dynamic_weight = weight.astype(np.float64, copy=True)
 
@@ -3781,6 +3799,8 @@ class CoveringDesignSolver:
 
             # Diversify each restart with a few random swaps.
             perturb = min(4, max(1, target_len // 35))
+            if hard_phase_boost:
+                perturb = min(7, max(2, target_len // 28))
             for _ in range(perturb):
                 if time.time() >= deadline:
                     break
@@ -3821,6 +3841,10 @@ class CoveringDesignSolver:
             tabu_drop_until: dict[int, int] = {}
             tabu_add_until: dict[int, int] = {}
             tabu_tenure = 9 if target_len >= 80 else 7
+            if hard_phase_boost:
+                tabu_tenure += 2
+            plateau_limit = 320 if hard_phase_boost else 240
+            plateau_kicks = 0
 
             for iter_idx in range(max_steps):
                 if time.time() >= deadline or self._cancel():
@@ -3906,7 +3930,46 @@ class CoveringDesignSolver:
                             )
                 unc = new_unc
 
-                if no_improve >= 240:
+                if no_improve >= plateau_limit:
+                    if hard_phase_boost and plateau_kicks < 2:
+                        plateau_kicks += 1
+                        kick_swaps = min(6, max(2, target_len // 50))
+                        for _ in range(kick_swaps):
+                            if time.time() >= deadline or self._cancel():
+                                break
+                            drop_pos2 = random.randrange(len(selected))
+                            dropped2 = selected.pop(drop_pos2)
+                            selected_set.remove(dropped2)
+                            counts[cov_table[dropped2]] -= 1
+
+                            uncovered2 = np.flatnonzero(counts == 0)
+                            if len(uncovered2) == 0:
+                                add_ci2 = dropped2
+                            else:
+                                scores2 = self._candidate_scores_from_uncovered(
+                                    uncovered=uncovered2,
+                                    dynamic_weight=dynamic_weight,
+                                    selected_set=selected_set,
+                                )
+                                if np.max(scores2) <= 0:
+                                    add_ci2 = dropped2
+                                else:
+                                    k2 = min(top_k, self.num_cands)
+                                    top2 = np.argpartition(scores2, -k2)[-k2:]
+                                    top2 = top2[scores2[top2] > 0]
+                                    if len(top2) == 0:
+                                        add_ci2 = int(np.argmax(scores2))
+                                    else:
+                                        add_ci2 = int(random.choice(top2.tolist()))
+                            selected.append(add_ci2)
+                            selected_set.add(add_ci2)
+                            counts[cov_table[add_ci2]] += 1
+                        unc = int(np.sum(counts == 0))
+                        if unc < best_unc:
+                            best_unc = unc
+                            dynamic_weight = np.maximum(weight, dynamic_weight * 0.90)
+                        no_improve = 0
+                        continue
                     break
 
         return None

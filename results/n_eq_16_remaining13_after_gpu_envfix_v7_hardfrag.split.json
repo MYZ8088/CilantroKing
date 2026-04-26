@@ -1,0 +1,415 @@
+{
+  "generated_at": "2026-04-26 02:36:46",
+  "source_json": "D:\\ai2026.4\\CilantroKing\\results\\n_eq_16_remaining13_after_gpu_envfix_v7_hardfrag.json",
+  "batch_n_lt_16": {
+    "label": "n<16",
+    "summary": {
+      "total_cases": 0,
+      "compliant_count": 0,
+      "non_compliant_count": 0,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 0,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 0.0
+    },
+    "avg_gap_ratio": null,
+    "median_gap_ratio": null,
+    "avg_gap_ratio_non_compliant": null,
+    "median_gap_ratio_non_compliant": null,
+    "avg_elapsed_sec": null,
+    "median_elapsed_sec": null,
+    "avg_first_legal_elapsed_sec": null,
+    "family_stats": {},
+    "worst_gap_top15": [],
+    "slowest_top15": []
+  },
+  "batch_n_ge_16_lt_18": {
+    "label": "16<=n<18",
+    "summary": {
+      "total_cases": 13,
+      "compliant_count": 2,
+      "non_compliant_count": 11,
+      "runtime_fail_count": 0,
+      "quality_fail_count": 11,
+      "verify_fail_count": 0,
+      "status_timeout_count": 0,
+      "status_error_count": 0,
+      "elapsed_total_sec": 1304.26061
+    },
+    "avg_gap_ratio": 0.182877,
+    "median_gap_ratio": 0.179372,
+    "avg_gap_ratio_non_compliant": 0.199213,
+    "median_gap_ratio_non_compliant": 0.181818,
+    "avg_elapsed_sec": 100.327739,
+    "median_elapsed_sec": 115.356919,
+    "avg_first_legal_elapsed_sec": 4.531935,
+    "family_stats": {
+      "containment_s_eq_j": {
+        "total": 4,
+        "compliant": 1,
+        "non_compliant": 3,
+        "quality_fail": 3,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.173608,
+        "avg_elapsed_sec": 93.380143
+      },
+      "general_noncontain": {
+        "total": 3,
+        "compliant": 0,
+        "non_compliant": 3,
+        "quality_fail": 3,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.188645,
+        "avg_elapsed_sec": 97.177969
+      },
+      "j_eq_k_noncontain_medium_n": {
+        "total": 6,
+        "compliant": 1,
+        "non_compliant": 5,
+        "quality_fail": 5,
+        "runtime_fail": 0,
+        "verify_fail": 0,
+        "avg_gap_ratio": 0.186173,
+        "avg_elapsed_sec": 106.534355
+      }
+    },
+    "worst_gap_top15": [
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 372,
+        "gap_ratio": 0.269625,
+        "elapsed_sec": 115.641196,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 115.811476,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 351,
+        "gap_ratio": 0.240283,
+        "elapsed_sec": 114.713003,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 38,
+        "gap_ratio": 0.225806,
+        "elapsed_sec": 116.47149,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 115.750367,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 156,
+        "gap_ratio": 0.181818,
+        "elapsed_sec": 115.247588,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 263,
+        "gap_ratio": 0.179372,
+        "elapsed_sec": 115.356919,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 89,
+        "gap_ratio": 0.171053,
+        "elapsed_sec": 116.619956,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_4",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 4,
+        "baseline_blocks": 6,
+        "solver_blocks": 7,
+        "gap_ratio": 0.166667,
+        "elapsed_sec": 104.712307,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 60,
+        "gap_ratio": 0.153846,
+        "elapsed_sec": 59.435004,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_4",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 28,
+        "solver_blocks": 32,
+        "gap_ratio": 0.142857,
+        "elapsed_sec": 116.287426,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ],
+    "slowest_top15": [
+      {
+        "id": "L_16_7_4_4",
+        "n": 16,
+        "k": 7,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 76,
+        "solver_blocks": 89,
+        "gap_ratio": 0.171053,
+        "elapsed_sec": 116.619956,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_5",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 5,
+        "baseline_blocks": 31,
+        "solver_blocks": 38,
+        "gap_ratio": 0.225806,
+        "elapsed_sec": 116.47149,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_4",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 28,
+        "solver_blocks": 32,
+        "gap_ratio": 0.142857,
+        "elapsed_sec": 116.287426,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_6_5",
+        "n": 16,
+        "k": 7,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 78,
+        "solver_blocks": 99,
+        "gap_ratio": 0.269231,
+        "elapsed_sec": 115.811476,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_4_4",
+        "n": 16,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 152,
+        "solver_blocks": 181,
+        "gap_ratio": 0.190789,
+        "elapsed_sec": 115.750367,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_6",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 293,
+        "solver_blocks": 372,
+        "gap_ratio": 0.269625,
+        "elapsed_sec": 115.641196,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_6_5",
+        "n": 16,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 223,
+        "solver_blocks": 263,
+        "gap_ratio": 0.179372,
+        "elapsed_sec": 115.356919,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_5_5_4",
+        "n": 16,
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 132,
+        "solver_blocks": 156,
+        "gap_ratio": 0.181818,
+        "elapsed_sec": 115.247588,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_5_5",
+        "n": 16,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 283,
+        "solver_blocks": 351,
+        "gap_ratio": 0.240283,
+        "elapsed_sec": 114.713003,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_7_7_4",
+        "n": 16,
+        "k": 7,
+        "j": 7,
+        "s": 4,
+        "baseline_blocks": 6,
+        "solver_blocks": 7,
+        "gap_ratio": 0.166667,
+        "elapsed_sec": 104.712307,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_16_6_5_4",
+        "n": 16,
+        "k": 6,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 52,
+        "solver_blocks": 60,
+        "gap_ratio": 0.153846,
+        "elapsed_sec": 59.435004,
+        "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      }
+    ]
+  }
+}

@@ -1,26 +1,26 @@
 {
-  "generated_at": "2026-04-25 23:24:12",
+  "generated_at": "2026-04-26 02:30:26",
   "source_json": "D:\\ai2026.4\\CilantroKing\\results\\n15_iter2_cluster_solver_exact_first.json",
   "batch_n_lt_16": {
     "label": "n<16",
     "summary": {
       "total_cases": 14,
-      "compliant_count": 1,
-      "non_compliant_count": 13,
+      "compliant_count": 0,
+      "non_compliant_count": 14,
       "runtime_fail_count": 0,
-      "quality_fail_count": 13,
+      "quality_fail_count": 14,
       "verify_fail_count": 0,
       "status_timeout_count": 0,
       "status_error_count": 0,
-      "elapsed_total_sec": 1389.645176
+      "elapsed_total_sec": 1512.55656
     },
-    "avg_gap_ratio": 0.16968,
-    "median_gap_ratio": 0.156633,
-    "avg_gap_ratio_non_compliant": 0.182732,
-    "median_gap_ratio_non_compliant": 0.15942,
-    "avg_elapsed_sec": 99.26037,
-    "median_elapsed_sec": 100.58922,
-    "avg_first_legal_elapsed_sec": 38.500723,
+    "avg_gap_ratio": 0.185926,
+    "median_gap_ratio": 0.174342,
+    "avg_gap_ratio_non_compliant": 0.185926,
+    "median_gap_ratio_non_compliant": 0.174342,
+    "avg_elapsed_sec": 108.039754,
+    "median_elapsed_sec": 109.793885,
+    "avg_first_legal_elapsed_sec": 40.645632,
     "family_stats": {
       "containment_s_eq_j": {
         "total": 6,
@@ -29,8 +29,8 @@
         "quality_fail": 6,
         "runtime_fail": 0,
         "verify_fail": 0,
-        "avg_gap_ratio": 0.165646,
-        "avg_elapsed_sec": 102.239027
+        "avg_gap_ratio": 0.168553,
+        "avg_elapsed_sec": 106.968963
       },
       "general_noncontain": {
         "total": 2,
@@ -40,20 +40,35 @@
         "runtime_fail": 0,
         "verify_fail": 0,
         "avg_gap_ratio": 0.122845,
-        "avg_elapsed_sec": 96.779155
+        "avg_elapsed_sec": 110.115097
       },
       "j_eq_k_noncontain_medium_n": {
         "total": 6,
-        "compliant": 1,
-        "non_compliant": 5,
-        "quality_fail": 5,
+        "compliant": 0,
+        "non_compliant": 6,
+        "quality_fail": 6,
         "runtime_fail": 0,
         "verify_fail": 0,
-        "avg_gap_ratio": 0.189324,
-        "avg_elapsed_sec": 97.108784
+        "avg_gap_ratio": 0.224326,
+        "avg_elapsed_sec": 108.418765
       }
     },
     "worst_gap_top15": [
+      {
+        "id": "L_15_7_7_6",
+        "n": 15,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 180,
+        "solver_blocks": 232,
+        "gap_ratio": 0.288889,
+        "elapsed_sec": 118.799864,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
       {
         "id": "L_15_7_5_5",
         "n": 15,
@@ -63,7 +78,7 @@
         "baseline_blocks": 189,
         "solver_blocks": 240,
         "gap_ratio": 0.269841,
-        "elapsed_sec": 102.012553,
+        "elapsed_sec": 97.464493,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
@@ -78,22 +93,7 @@
         "baseline_blocks": 142,
         "solver_blocks": 180,
         "gap_ratio": 0.267606,
-        "elapsed_sec": 102.526155,
-        "family": "j_eq_k_noncontain_medium_n",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_15_7_7_6",
-        "n": 15,
-        "k": 7,
-        "j": 7,
-        "s": 6,
-        "baseline_blocks": 180,
-        "solver_blocks": 227,
-        "gap_ratio": 0.261111,
-        "elapsed_sec": 102.971606,
+        "elapsed_sec": 103.128733,
         "family": "j_eq_k_noncontain_medium_n",
         "reasons": [
           "quality_over_10pct"
@@ -108,7 +108,22 @@
         "baseline_blocks": 98,
         "solver_blocks": 121,
         "gap_ratio": 0.234694,
-        "elapsed_sec": 101.271855,
+        "elapsed_sec": 102.610222,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_13_6_6_5",
+        "n": 13,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 61,
+        "solver_blocks": 75,
+        "gap_ratio": 0.229508,
+        "elapsed_sec": 102.044076,
         "family": "j_eq_k_noncontain_medium_n",
         "reasons": [
           "quality_over_10pct"
@@ -121,9 +136,9 @@
         "j": 7,
         "s": 6,
         "baseline_blocks": 61,
-        "solver_blocks": 74,
-        "gap_ratio": 0.213115,
-        "elapsed_sec": 100.606024,
+        "solver_blocks": 72,
+        "gap_ratio": 0.180328,
+        "elapsed_sec": 109.70256,
         "family": "j_eq_k_noncontain_medium_n",
         "reasons": [
           "quality_over_10pct"
@@ -138,23 +153,23 @@
         "baseline_blocks": 817,
         "solver_blocks": 960,
         "gap_ratio": 0.175031,
-        "elapsed_sec": 106.814378,
+        "elapsed_sec": 119.133558,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]
       },
       {
-        "id": "L_14_5_5_4",
+        "id": "L_14_7_6_6",
         "n": 14,
-        "k": 5,
-        "j": 5,
-        "s": 4,
-        "baseline_blocks": 69,
-        "solver_blocks": 80,
-        "gap_ratio": 0.15942,
-        "elapsed_sec": 99.88361,
-        "family": "j_eq_k_noncontain_medium_n",
+        "k": 7,
+        "j": 6,
+        "s": 6,
+        "baseline_blocks": 501,
+        "solver_blocks": 588,
+        "gap_ratio": 0.173653,
+        "elapsed_sec": 103.979171,
+        "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]
@@ -168,23 +183,23 @@
         "baseline_blocks": 117,
         "solver_blocks": 135,
         "gap_ratio": 0.153846,
-        "elapsed_sec": 100.262422,
+        "elapsed_sec": 94.566086,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]
       },
       {
-        "id": "L_14_7_6_6",
+        "id": "L_14_5_5_4",
         "n": 14,
-        "k": 7,
-        "j": 6,
-        "s": 6,
-        "baseline_blocks": 501,
-        "solver_blocks": 572,
-        "gap_ratio": 0.141717,
-        "elapsed_sec": 103.251105,
-        "family": "containment_s_eq_j",
+        "k": 5,
+        "j": 5,
+        "s": 4,
+        "baseline_blocks": 69,
+        "solver_blocks": 79,
+        "gap_ratio": 0.144928,
+        "elapsed_sec": 114.227134,
+        "family": "j_eq_k_noncontain_medium_n",
         "reasons": [
           "quality_over_10pct"
         ]
@@ -198,7 +213,7 @@
         "baseline_blocks": 80,
         "solver_blocks": 91,
         "gap_ratio": 0.1375,
-        "elapsed_sec": 100.521287,
+        "elapsed_sec": 114.344791,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
@@ -213,7 +228,7 @@
         "baseline_blocks": 40,
         "solver_blocks": 45,
         "gap_ratio": 0.125,
-        "elapsed_sec": 96.524673,
+        "elapsed_sec": 109.885209,
         "family": "general_noncontain",
         "reasons": [
           "quality_over_10pct"
@@ -228,7 +243,7 @@
         "baseline_blocks": 58,
         "solver_blocks": 65,
         "gap_ratio": 0.12069,
-        "elapsed_sec": 97.033636,
+        "elapsed_sec": 110.344985,
         "family": "general_noncontain",
         "reasons": [
           "quality_over_10pct"
@@ -241,9 +256,9 @@
         "j": 5,
         "s": 5,
         "baseline_blocks": 138,
-        "solver_blocks": 154,
-        "gap_ratio": 0.115942,
-        "elapsed_sec": 100.572416,
+        "solver_blocks": 152,
+        "gap_ratio": 0.101449,
+        "elapsed_sec": 112.325678,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
@@ -260,22 +275,7 @@
         "baseline_blocks": 817,
         "solver_blocks": 960,
         "gap_ratio": 0.175031,
-        "elapsed_sec": 106.814378,
-        "family": "containment_s_eq_j",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_14_7_6_6",
-        "n": 14,
-        "k": 7,
-        "j": 6,
-        "s": 6,
-        "baseline_blocks": 501,
-        "solver_blocks": 572,
-        "gap_ratio": 0.141717,
-        "elapsed_sec": 103.251105,
+        "elapsed_sec": 119.133558,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
@@ -288,85 +288,10 @@
         "j": 7,
         "s": 6,
         "baseline_blocks": 180,
-        "solver_blocks": 227,
-        "gap_ratio": 0.261111,
-        "elapsed_sec": 102.971606,
+        "solver_blocks": 232,
+        "gap_ratio": 0.288889,
+        "elapsed_sec": 118.799864,
         "family": "j_eq_k_noncontain_medium_n",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_15_6_6_5",
-        "n": 15,
-        "k": 6,
-        "j": 6,
-        "s": 5,
-        "baseline_blocks": 142,
-        "solver_blocks": 180,
-        "gap_ratio": 0.267606,
-        "elapsed_sec": 102.526155,
-        "family": "j_eq_k_noncontain_medium_n",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_15_7_5_5",
-        "n": 15,
-        "k": 7,
-        "j": 5,
-        "s": 5,
-        "baseline_blocks": 189,
-        "solver_blocks": 240,
-        "gap_ratio": 0.269841,
-        "elapsed_sec": 102.012553,
-        "family": "containment_s_eq_j",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_14_6_6_5",
-        "n": 14,
-        "k": 6,
-        "j": 6,
-        "s": 5,
-        "baseline_blocks": 98,
-        "solver_blocks": 121,
-        "gap_ratio": 0.234694,
-        "elapsed_sec": 101.271855,
-        "family": "j_eq_k_noncontain_medium_n",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_13_7_7_6",
-        "n": 13,
-        "k": 7,
-        "j": 7,
-        "s": 6,
-        "baseline_blocks": 61,
-        "solver_blocks": 74,
-        "gap_ratio": 0.213115,
-        "elapsed_sec": 100.606024,
-        "family": "j_eq_k_noncontain_medium_n",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_14_7_5_5",
-        "n": 14,
-        "k": 7,
-        "j": 5,
-        "s": 5,
-        "baseline_blocks": 138,
-        "solver_blocks": 154,
-        "gap_ratio": 0.115942,
-        "elapsed_sec": 100.572416,
-        "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]
@@ -380,22 +305,7 @@
         "baseline_blocks": 80,
         "solver_blocks": 91,
         "gap_ratio": 0.1375,
-        "elapsed_sec": 100.521287,
-        "family": "containment_s_eq_j",
-        "reasons": [
-          "quality_over_10pct"
-        ]
-      },
-      {
-        "id": "L_15_6_4_4",
-        "n": 15,
-        "k": 6,
-        "j": 4,
-        "s": 4,
-        "baseline_blocks": 117,
-        "solver_blocks": 135,
-        "gap_ratio": 0.153846,
-        "elapsed_sec": 100.262422,
+        "elapsed_sec": 114.344791,
         "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
@@ -408,10 +318,25 @@
         "j": 5,
         "s": 4,
         "baseline_blocks": 69,
-        "solver_blocks": 80,
-        "gap_ratio": 0.15942,
-        "elapsed_sec": 99.88361,
+        "solver_blocks": 79,
+        "gap_ratio": 0.144928,
+        "elapsed_sec": 114.227134,
         "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_14_7_5_5",
+        "n": 14,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 138,
+        "solver_blocks": 152,
+        "gap_ratio": 0.101449,
+        "elapsed_sec": 112.325678,
+        "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]
@@ -425,7 +350,7 @@
         "baseline_blocks": 58,
         "solver_blocks": 65,
         "gap_ratio": 0.12069,
-        "elapsed_sec": 97.033636,
+        "elapsed_sec": 110.344985,
         "family": "general_noncontain",
         "reasons": [
           "quality_over_10pct"
@@ -440,8 +365,113 @@
         "baseline_blocks": 40,
         "solver_blocks": 45,
         "gap_ratio": 0.125,
-        "elapsed_sec": 96.524673,
+        "elapsed_sec": 109.885209,
         "family": "general_noncontain",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_13_7_7_6",
+        "n": 13,
+        "k": 7,
+        "j": 7,
+        "s": 6,
+        "baseline_blocks": 61,
+        "solver_blocks": 72,
+        "gap_ratio": 0.180328,
+        "elapsed_sec": 109.70256,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_14_7_6_6",
+        "n": 14,
+        "k": 7,
+        "j": 6,
+        "s": 6,
+        "baseline_blocks": 501,
+        "solver_blocks": 588,
+        "gap_ratio": 0.173653,
+        "elapsed_sec": 103.979171,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_15_6_6_5",
+        "n": 15,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 142,
+        "solver_blocks": 180,
+        "gap_ratio": 0.267606,
+        "elapsed_sec": 103.128733,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_14_6_6_5",
+        "n": 14,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 98,
+        "solver_blocks": 121,
+        "gap_ratio": 0.234694,
+        "elapsed_sec": 102.610222,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_13_6_6_5",
+        "n": 13,
+        "k": 6,
+        "j": 6,
+        "s": 5,
+        "baseline_blocks": 61,
+        "solver_blocks": 75,
+        "gap_ratio": 0.229508,
+        "elapsed_sec": 102.044076,
+        "family": "j_eq_k_noncontain_medium_n",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_15_7_5_5",
+        "n": 15,
+        "k": 7,
+        "j": 5,
+        "s": 5,
+        "baseline_blocks": 189,
+        "solver_blocks": 240,
+        "gap_ratio": 0.269841,
+        "elapsed_sec": 97.464493,
+        "family": "containment_s_eq_j",
+        "reasons": [
+          "quality_over_10pct"
+        ]
+      },
+      {
+        "id": "L_15_6_4_4",
+        "n": 15,
+        "k": 6,
+        "j": 4,
+        "s": 4,
+        "baseline_blocks": 117,
+        "solver_blocks": 135,
+        "gap_ratio": 0.153846,
+        "elapsed_sec": 94.566086,
+        "family": "containment_s_eq_j",
         "reasons": [
           "quality_over_10pct"
         ]

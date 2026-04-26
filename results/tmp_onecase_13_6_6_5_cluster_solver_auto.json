@@ -1,0 +1,89 @@
+{
+  "generated_at": "2026-04-26 00:22:05",
+  "config": {
+    "n_min": 13,
+    "n_max_exclusive": 14,
+    "timeout_sec": 120.0,
+    "hard_timeout_sec": 130.0,
+    "num_attempts": 3,
+    "quality_tolerance_ratio": 0.1,
+    "judge_rule": "compliant iff runtime<=120s AND solver_blocks<=baseline*1.10 AND solver_verified",
+    "ck_use_gpu": 1,
+    "ck_skip_gpu_probe": true,
+    "ck_n16_anchor_module": 0,
+    "ck_disable_cpsat": 0,
+    "ck_solver_module": "solver_n15_cluster_isolated",
+    "ck_use_gpu_n16": 1,
+    "ck_skip_gpu_probe_n16": 0,
+    "ck_n16_anchor_module_n16": 1,
+    "ck_disable_cpsat_n16": 1,
+    "ck_solver_module_n16": "solver_n16_isolated",
+    "n16_owned_routing": true,
+    "python_exe": "D:\\ai2026.4\\CilantroKing\\.venv\\Scripts\\python.exe",
+    "workers": 1
+  },
+  "baseline_file": "results\\tmp_onecase_13_6_6_5_baseline.json",
+  "summary": {
+    "total_cases": 1,
+    "compliant_count": 0,
+    "non_compliant_count": 1,
+    "runtime_fail_count": 0,
+    "quality_fail_count": 1,
+    "verify_fail_count": 0,
+    "status_timeout_count": 0,
+    "status_error_count": 0,
+    "elapsed_total_sec": 100.665283
+  },
+  "reason_counter": {
+    "quality_over_10pct": 1
+  },
+  "by_n": [
+    {
+      "n": 13,
+      "total": 1,
+      "compliant": 0,
+      "non_compliant": 1,
+      "quality_fail": 1,
+      "runtime_fail": 0,
+      "verify_fail": 0,
+      "avg_gap_ratio": 0.196721,
+      "avg_elapsed_sec": 100.665283
+    }
+  ],
+  "elapsed_total_wall_sec": 101.3008,
+  "cases": [
+    {
+      "id": "L_13_6_6_5",
+      "n": 13,
+      "k": 6,
+      "j": 6,
+      "s": 5,
+      "family": "j_eq_k_noncontain_medium_n",
+      "baseline_blocks": 61,
+      "baseline_source": "coveringrepo_cached",
+      "source_page": "https://r.jina.ai/http://www.coveringrepository.com/systems.aspx?k=06&m=06&t=05",
+      "status": "ok",
+      "solver_blocks": 73,
+      "gap_ratio": 0.196721,
+      "abs_gap_ratio": 0.196721,
+      "quality_ratio_to_baseline": 1.196721,
+      "elapsed_sec": 100.665283,
+      "first_legal_elapsed_sec": 39.017673,
+      "runtime_for_judge_sec": 100.665283,
+      "runtime_ok": true,
+      "quality_ok": false,
+      "solver_verified": true,
+      "solver_module": "solver_n15_cluster_isolated",
+      "solver_profile": "default",
+      "verified_ok": true,
+      "compliant": false,
+      "error": null,
+      "num_targets": 1716,
+      "num_cands": 1716,
+      "interaction_scale": 2944656,
+      "non_compliant_reasons": [
+        "quality_over_10pct"
+      ]
+    }
+  ]
+}
