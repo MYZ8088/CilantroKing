@@ -30,7 +30,6 @@ from typing import Callable
 import numpy as np
 
 from identity_cover_module import build_identity_cover
-from n15_specialized_module import is_n15_special_case, run_n15_specialized_module
 
 
 def _add_windows_cuda_dll_dirs() -> None:
@@ -388,6 +387,7 @@ class CoveringDesignSolver:
         k: int,
         j: int,
         s: int,
+        t: int = 1,
         *,
         progress_cb: Callable[[SolverProgress], None] | None = None,
         cancel_fn: Callable[[], bool] | None = None,
@@ -395,6 +395,27 @@ class CoveringDesignSolver:
         time_budget_sec: float | None = None,
         skip_final_verify: bool = False,
     ) -> None:
+        # For t > 1, delegate to TCoveringSolver
+        if t > 1:
+            from tcovering_solver import TCoveringSolver
+            self._tcovering_solver = TCoveringSolver(
+                n=n, k=k, j=j, s=s, t=t,
+                progress_cb=progress_cb,
+                cancel_fn=cancel_fn,
+                num_attempts=num_attempts,
+                time_budget_sec=time_budget_sec,
+            )
+            self._is_tcovering = True
+            # Set basic attributes for compatibility
+            self.n = n
+            self.k = k
+            self.j = j
+            self.s = s
+            self.t = t
+            return
+        
+        self._is_tcovering = False
+        
         # Start timing from initialization to include preprocessing
         self._t0 = time.time()
         
@@ -402,6 +423,7 @@ class CoveringDesignSolver:
         self.k = k
         self.j = j
         self.s = s
+        self.t = t
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
@@ -420,7 +442,6 @@ class CoveringDesignSolver:
         self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
         self._n16_anchor_module_enabled = bool(_env_int("CK_N16_ANCHOR_MODULE", 0))
-        self._n15_hardcase_module_enabled = bool(_env_int("CK_N15_HARDCASE_MODULE", 1))
 
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
@@ -432,6 +453,11 @@ class CoveringDesignSolver:
             raise ValueError(f"Need s<=j<=k, got s={s} j={j} k={k}")
         if n < k:
             raise ValueError(f"Need n>=k, got n={n} k={k}")
+        
+        # Validate t parameter (only t=1 in this path)
+        max_t = comb(j, s)
+        if not 1 <= t <= max_t:
+            raise ValueError(f"t must be between 1 and C({j},{s})={max_t}, got {t}")
 
         self._containment = s == j
 
@@ -655,6 +681,10 @@ class CoveringDesignSolver:
     # ------------------------------------------------------------------
 
     def solve(self) -> SolverResult:
+        # Delegate to TCoveringSolver if t > 1
+        if hasattr(self, '_is_tcovering') and self._is_tcovering:
+            return self._tcovering_solver.solve()
+        
         if self._identity_cover:
             return self._solve_identity_cover()
         exact_small = self._solve_small_exact_cover()
@@ -818,7 +848,6 @@ class CoveringDesignSolver:
             best = self._phase_e_mid_compact_search(best)
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
-            best = self._phase_n16_anchor_module_dispatch(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
             best = self._phase_k_cluster_structural_refine(best)
             best = self._phase_h_nlt16_cp_sat_refine(best)
@@ -837,7 +866,6 @@ class CoveringDesignSolver:
                     best = self._phase_k_cluster_structural_refine(best)
                     if len(best) >= before:
                         break
-            best = self._phase_n15_hardcase_module_dispatch(best)
 
         masks = best or []
         return SolverResult(
@@ -1096,20 +1124,6 @@ class CoveringDesignSolver:
     def _phase_a_reserved_polish_budget(self) -> float:
         if self.n > 16:
             return 0.0
-        if (
-            self.n < 16
-            and self._n15_hardcase_module_enabled
-            and is_n15_special_case(self.n, self.k, self.j, self.s)
-        ):
-            if self.j == self.k and not self._containment:
-                if self.num_targets >= 3_000:
-                    return 42.0
-                return 34.0
-            if self._containment:
-                if self.num_targets >= 3_000:
-                    return 30.0
-                return 24.0
-            return 20.0
         if self.n == 16:
             if not self._is_n16_hard_cluster():
                 return 0.0
@@ -1378,24 +1392,6 @@ class CoveringDesignSolver:
         if self._containment:
             return "n16_hard_containment"
         return "n16_hard_general"
-
-    def _phase_n15_hardcase_module_dispatch(self, sol: list[int]) -> list[int]:
-        if not self._n15_hardcase_module_enabled:
-            return sol
-        if self.n >= 16:
-            return sol
-        if not is_n15_special_case(self.n, self.k, self.j, self.s):
-            return sol
-        if self._deadline_at is None:
-            return sol
-        remaining = self._time_remaining_sec()
-        if remaining is None or remaining < 6.0:
-            return sol
-        rng_state = random.getstate()
-        try:
-            return run_n15_specialized_module(self, sol)
-        finally:
-            random.setstate(rng_state)
 
     def _phase_n16_anchor_module_dispatch(self, sol: list[int]) -> list[int]:
         if not self._n16_anchor_module_enabled:

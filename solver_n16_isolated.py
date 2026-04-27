@@ -30,7 +30,6 @@ from typing import Callable
 import numpy as np
 
 from identity_cover_module import build_identity_cover
-from n16_specialized_module import run_n16_case_specialized_module
 from n15_specialized_module import is_n15_special_case, run_n15_specialized_module
 
 
@@ -1389,16 +1388,7 @@ class CoveringDesignSolver:
         return run_n15_specialized_module(self, sol)
 
     def _phase_n16_case_module_dispatch(self, sol: list[int]) -> list[int]:
-        if not self._n16_case_module_enabled:
-            return sol
-        if self.n != 16:
-            return sol
-        if self._deadline_at is None:
-            return sol
-        remaining = self._time_remaining_sec()
-        if remaining is None or remaining < 3.5:
-            return sol
-        return run_n16_case_specialized_module(self, sol)
+        return sol
 
     def _phase_n16_anchor_module_dispatch(self, sol: list[int]) -> list[int]:
         if not self._n16_anchor_module_enabled:

@@ -14,7 +14,7 @@ from typing import Callable, Optional
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
-DEFAULT_TIME_BUDGET_SEC = 150.0
+DEFAULT_TIME_BUDGET_SEC = 120.0
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
@@ -310,7 +310,12 @@ class CleanModernApp:
         row2.pack(fill="x", pady=(0, 10))
         self._j = self._param_entry(row2, "Test Size (j)", "5", "Constraint: s≤j≤k", 0)
         self._s = self._param_entry(row2, "Threshold (s)", "5", "Range: 3-7", 1)
-        self._timeout = self._param_entry(row2, "Timeout (sec)", "150", "Max runtime: 30-600s", 2)
+        self._t = self._param_entry(row2, "T-Covering (t)", "1", "Range: 1-C(j,s)", 2)
+
+        # Third row
+        row3 = tk.Frame(params_content, bg=self.colors['card_bg'])
+        row3.pack(fill="x", pady=(0, 10))
+        self._timeout = self._param_entry(row3, "Timeout (sec)", "150", "Max runtime: 30-600s", 0)
 
         # Sample Selection Card
         sample_card = self._create_card(scroll_frame, "📊 Sample Selection")
@@ -900,12 +905,13 @@ class CleanModernApp:
         current_run = run_count + 1
         
         # Show detailed information WITHOUT verification status
+        t_info = f", t={p['t']}" if p.get('t', 1) > 1 else ""
         lines = [
             "═" * 70,
             "  DETAILED SOLUTION",
             "═" * 70,
             "",
-            f"  Parameters: m={p['m']}, n={p['n']}, k={p['k']}, j={p['j']}, s={p['s']}",
+            f"  Parameters: m={p['m']}, n={p['n']}, k={p['k']}, j={p['j']}, s={p['s']}{t_info}",
             f"  Run Number: {self._ordinal(current_run)}",
             f"  Groups Found: {result.num_groups}",
             f"  Time Elapsed: {result.elapsed:.2f}s",
@@ -943,14 +949,21 @@ class CleanModernApp:
         p = self._params
         current = self._current_result
         
-        # Perform verification
+        # Perform verification with correct t parameter
         from solver import CoveringDesignSolver
         
+        t = p.get("t", 1)  # Get t parameter, default to 1
         temp_solver = CoveringDesignSolver(
-            n=p["n"], k=p["k"], j=p["j"], s=p["s"],
+            n=p["n"], k=p["k"], j=p["j"], s=p["s"], t=t,
             num_attempts=1
         )
-        is_verified = temp_solver._verify(self._result_masks(current))
+        
+        # For t>1, use the tcovering solver's verify method
+        if t > 1 and hasattr(temp_solver, '_tcovering_solver'):
+            is_verified = temp_solver._tcovering_solver._verify(self._result_masks(current))
+        else:
+            # For t=1, use the standard verify method
+            is_verified = temp_solver._verify(self._result_masks(current))
         
         # Update the result
         self._current_result = SolverResult(
@@ -1102,6 +1115,7 @@ class CleanModernApp:
         k = _int(self._k, "k")
         j = _int(self._j, "j")
         s = _int(self._s, "s")
+        t = _int(self._t, "t")
         timeout = _int(self._timeout, "timeout")
 
         if not 45 <= m <= 54:
@@ -1116,10 +1130,17 @@ class CleanModernApp:
             raise ValueError(f"Need s({s}) ≤ j({j}) ≤ k({k})")
         if n > m:
             raise ValueError(f"n({n}) cannot exceed m({m})")
+        
+        # Validate t parameter
+        from math import comb
+        max_t = comb(j, s)
+        if not 1 <= t <= max_t:
+            raise ValueError(f"t must be between 1 and C({j},{s})={max_t}")
+        
         if not 30 <= timeout <= 600:
             raise ValueError("Timeout must be between 30 and 600 seconds")
         
-        return {"m": m, "n": n, "k": k, "j": j, "s": s, "timeout": timeout}
+        return {"m": m, "n": n, "k": k, "j": j, "s": s, "t": t, "timeout": timeout}
 
     def _select_samples(self, p: dict[str, int]) -> list[int] | None:
         m, n = p["m"], p["n"]
@@ -1173,7 +1194,7 @@ class CleanModernApp:
         try:
             started_at = self._run_started_at or time.time()
             solver = CoveringDesignSolver(
-                n=p["n"], k=p["k"], j=p["j"], s=p["s"],
+                n=p["n"], k=p["k"], j=p["j"], s=p["s"], t=p["t"],
                 progress_cb=lambda prog: self._q.put(prog),
                 cancel_fn=lambda _t0=started_at: self._should_cancel_solver(_t0),
                 num_attempts=5,

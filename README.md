@@ -55,14 +55,18 @@ Find the **smallest** collection of $k$-subsets of the sample pool such that eve
 
 ```
 ai_homework/
-├── main.py                         # GUI entry point (recommended)
-├── app_clean.py                    # Main Tkinter GUI (pure tkinter)
+├── main_clean.py                   # Modern UI entry point (recommended)
+├── app_clean.py                    # Modern Tkinter GUI (pure tkinter)
+├── main.py                         # Legacy entry point
+├── app.py                          # Legacy GUI
 ├── solver.py                       # Core solver (greedy + SA + GPU support)
 ├── bounds.py                       # Theoretical bounds + LJCR dataset
 ├── database.py                     # SQLite result storage with run tracking
 ├── requirements.txt                # Python dependencies
 ├── SOLUTION.md                     # Detailed algorithm documentation (Chinese)
 ├── MANUAL_TEST_REFERENCE.txt       # 186 LJCR test cases with expected results
+├── UI_IMPROVEMENTS.md              # UI development history
+├── MODERN_UI_GUIDE.md              # Modern UI design guide
 └── tests/
     ├── ljcr_dataset.py             # LJCR dataset (186 entries, proven/best-known)
     ├── test_ljcr_dataset.py        # LJCR-based test runner
@@ -96,6 +100,11 @@ pip install cupy-cuda12x  # or appropriate CUDA version
 
 ### Launch the Modern GUI (Recommended)
 
+```bash
+python main_clean.py
+```
+
+Or use the legacy interface:
 ```bash
 python main.py
 ```
@@ -221,31 +230,6 @@ The solver uses a three-phase approach with GPU acceleration support:
 
 Multiple independent attempts are run with different random seeds; the best result is returned.
 
-### Solution Quality
-
-**The algorithm returns heuristic solutions, not mathematically proven optimal solutions.**
-
-This is an NP-hard problem where finding the global optimum is computationally infeasible. Instead, the solver uses multiple strategies to find high-quality solutions quickly:
-
-- **Theoretical Lower Bounds**: Schönheim bound (for s==j) and volume bound provide mathematical minimums
-- **LJCR Known Values**: 186 proven optimal or best-known values from La Jolla Covering Repository
-- **Quality Guarantee**: Solutions typically within 1.0-1.3× of theoretical lower bound
-- **Early Stopping**: Stops when reaching lower bound or no improvement after multiple attempts
-
-**Why some instances solve quickly (0.2s)?**
-1. Small problem size (n≤10)
-2. Greedy finds near-optimal solution immediately
-3. Solution matches theoretical lower bound (proven optimal)
-4. Early stopping triggers
-
-**Why some instances take longer (10s+)?**
-1. Large problem size (n≥15, many candidates/targets)
-2. Multiple randomized attempts needed
-3. Simulated annealing optimization
-4. Solution far from lower bound (complex search space)
-
-See [ALGORITHM_EXPLANATION.md](ALGORITHM_EXPLANATION.md) for detailed explanation of optimization strategies and termination conditions.
-
 ### Performance Optimizations
 
 - **Preprocessing Time Included** — Timer starts from initialization to accurately reflect total algorithm time
@@ -260,5 +244,6 @@ For full algorithmic details, see [SOLUTION.md](SOLUTION.md).
 
 ## Development Notes
 
-- **UI Implementation**: Main GUI is maintained in [app_clean.py](app_clean.py)
+- **UI Evolution**: See [UI_IMPROVEMENTS.md](UI_IMPROVEMENTS.md) for the complete UI development history
+- **Modern Design**: See [MODERN_UI_GUIDE.md](MODERN_UI_GUIDE.md) for design principles and implementation details
 - **Benchmark Testing**: Follow [AGENTS.md](AGENTS.md) workflow for solver improvements
