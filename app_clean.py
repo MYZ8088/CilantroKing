@@ -14,7 +14,7 @@ from typing import Callable, Optional
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
-DEFAULT_TIME_BUDGET_SEC = 150.0
+DEFAULT_TIME_BUDGET_SEC = 120.0
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
