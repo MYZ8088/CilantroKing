@@ -1,152 +1,73 @@
-# An Optimal Samples Selection System
+# Optimal Samples Selection System
 
-A GUI-based solver for the **Covering Design** combinatorial optimization problem: given parameters $(m, n, k, j, s)$, find the minimum number of $k$-subsets (groups) of an $n$-element sample pool such that every $j$-subset is covered by at least one group with $\geq s$ common elements.
+This is the Python-only covering-design optimizer for the PDF project. The saved project keeps the algorithmic solver, validation tools, development notes, and the `n=15`/`n=16` report.
 
-This is equivalent to the classical covering design $C(n, k, t)$ when $s = j = t$.
+For selected samples `N`, the solver outputs the smallest groups it can find so that every `j`-sample group has at least `s` common samples with at least one generated `k`-sample group.
 
----
+## Algorithm
 
-## Problem Definition
+- `n=15`: dispatched directly to [n15_solver.py](n15_solver.py). This file now contains the copied local algorithm for the `n=15` path, including its internal recursive helpers, full bitmask coverage, cyclic-orbit construction, partial-orbit ILP repair for `n=15,k=7,j=s=5`, recursive covering construction, greedy restarts, local search, optional ILP compression, and full validation.
+- `n=16`: dispatched directly to [n16_solver.py](n16_solver.py). This file contains a separate copied algorithm for `n=16`, tuned independently from the `n=15` path. The hard `n=16,k=7,j=s=5` path is still algorithmic partial cyclic orbit plus ILP repair; it does not use the baseline validation file as an answer source.
+- Other `n <= 16` values are intentionally not kept in this trimmed project. The retained code is focused on the requested `n=15` and `n=16` cases.
 
-Given:
-- **m** — population size (45–54), the universe from which samples are drawn
-- **n** — sample pool size (7–25), a random or manually chosen subset of the population
-- **k** — group size (4–7), each constructed group has exactly $k$ elements
-- **j** — test subset size ($s \leq j \leq k$)
-- **s** — minimum intersection threshold (3–7)
+No result table is embedded in the code. All groups are generated from the input parameters.
 
-Find the **smallest** collection of $k$-subsets of the sample pool such that every $j$-subset of the pool intersects at least one group in $\geq s$ elements.
+See [ALGORITHM.md](ALGORITHM.md) for the development/algorithm notes, including set cover, ILP, fallback methods, and full baseline validation. The saved `n=15`/`n=16` timing and accuracy report is [reports/n15_n16_report.md](reports/n15_n16_report.md).
 
----
+## Generate Results
 
-## Features
-
-- **Graphical interface** — Tkinter GUI with parameter input, progress bar, result display
-- **Three solver strategies** — incremental greedy, heuristic greedy, local search + simulated annealing post-processing
-- **Multi-attempt randomization** — runs multiple attempts and keeps the best result
-- **Result persistence** — SQLite database storage and retrieval via DB Browser
-- **Theoretical validation** — Schönheim lower bound, volume lower bound, LJCR known-best values
-- **Print support** — export results to file
-
----
-
-## Project Structure
-
-```
-ai_homework/
-├── main.py                         # Entry point
-├── app.py                          # Tkinter GUI
-├── solver.py                       # Core solver (greedy + SA)
-├── bounds.py                       # Theoretical bounds + LJCR dataset
-├── database.py                     # SQLite result storage
-├── requirements.txt                # Python dependencies
-├── SOLUTION.md                     # Detailed algorithm documentation (Chinese)
-├── MANUAL_TEST_REFERENCE.txt       # 186 LJCR test cases with expected results
-└── tests/
-    ├── ljcr_dataset.py             # LJCR dataset (186 entries, proven/best-known)
-    ├── test_ljcr_dataset.py        # LJCR-based test runner
-    ├── test_solver.py              # 8 PDF ground-truth examples
-    ├── test_perf.py                # 20 medium/large performance cases
-    └── test_validation.py         # 34 cases vs theoretical bounds
-```
-
----
-
-## Requirements
-
-- Python 3.10+
-- numpy >= 1.24
-
-Install dependencies:
+Randomly choose `n` samples from `1..m`:
 
 ```bash
-pip install -r requirements.txt
+python3 optimal_samples.py generate --m 45 --n 16 --k 7 --j 5 --s 5 --time-limit 120 --show
 ```
 
----
-
-## Usage
-
-### Launch the GUI
+Use manually selected `n` samples:
 
 ```bash
-python main.py
+python3 optimal_samples.py generate --m 45 --n 15 --k 7 --j 6 --s 3 --samples 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 --show
 ```
 
-### GUI Input Fields
+The result is saved under `db/` using the PDF shape:
 
-| Field | Description | Range |
-|-------|-------------|-------|
-| **m** | Population size | 45–54 |
-| **n** | Sample pool size | 7–25 |
-| **k** | Group size | 4–7 |
-| **j** | Test subset size (= t for C(n,k,t)) | s ≤ j ≤ k |
-| **s** | Minimum intersection (= t for C(n,k,t)) | 3–7 |
+```text
+m-n-k-j-s-x-y.txt
+```
 
-For classical covering design $C(n, k, t)$: set **j = s = t**.
+where `x` is the run number and `y` is the number of generated groups.
 
-### Example — Verify C(8, 6, 4) = 7
-
-Input: `m=45, n=8, k=6, j=4, s=4` → Expected output: **7 groups**
-
-### Sample Modes
-
-- **Random n** — automatically picks $n$ random elements from $\{1, \ldots, m\}$
-- **Input n** — manually enter exactly $n$ comma-separated values (e.g. `3,7,12,18,22,31,45,50`)
-
-### Buttons
-
-| Button | Action |
-|--------|--------|
-| **Execute** | Run the solver |
-| **Store** | Save result to SQLite database |
-| **Print** | Open result in system viewer |
-| **Clear** | Reset the output panel |
-| **DB Browser** | Browse all stored results |
-
----
-
-## Running Tests
+## DB Operations
 
 ```bash
-# Quick smoke test against 25 proven-optimal LJCR values (n≤12)
-python tests/test_ljcr_dataset.py --mode smoke
-
-# Full LJCR test (all entries up to n=15)
-python tests/test_ljcr_dataset.py --mode full --max-n 15
-
-# Dataset summary
-python tests/test_ljcr_dataset.py --mode summary
-
-# 8 PDF ground-truth examples
-python -m pytest tests/test_solver.py -v
-
-# Theoretical bounds validation (34 cases)
-python tests/test_validation.py
+python3 optimal_samples.py list
+python3 optimal_samples.py show 45-8-6-5-5-1-12.txt
+python3 optimal_samples.py delete 45-8-6-5-5-1-12.txt --yes
 ```
 
----
+Running without a subcommand opens the interactive menu:
 
-## LJCR Test Dataset
+```bash
+python3 optimal_samples.py
+```
 
-The file `tests/ljcr_dataset.py` contains **186** known covering design values from the [La Jolla Covering Repository](https://ljcr.dmgordon.org/cover/table.html) (2026-03-19), covering $n=7$–$25$, $k=4$–$7$, $t=3$–$6$.
+## Verify
 
-Each entry is classified as:
-- **绝对正确 (Proven optimal)** — Schönheim lower bound equals LJCR value → mathematically proven minimum (49 entries)
-- **可能最优 (Best known)** — LJCR value exceeds Schönheim bound → best known but not proven optimal (137 entries)
+```bash
+python3 -m unittest -v
+```
 
-See `MANUAL_TEST_REFERENCE.txt` for a complete table of all 186 test cases with the exact GUI input values and expected results.
+The tests cover the main numeric examples in the PDF and verify the DB filename/content format.
 
----
+Compare against the provided baseline counts with full coverage verification:
 
-## Algorithm Overview
+```bash
+python3 validate_against_baseline.py --max-n 16 --time-limit 120 --ratio-threshold 1.21 --output baseline_validation_results.csv
+```
 
-The solver uses a three-phase approach:
+Run quick smoke validation for the extracted `n=15` and `n=16` solver entry points:
 
-1. **Greedy Construction** — incrementally add the $k$-subset covering the most uncovered $j$-subsets; falls back to heuristic greedy for large instances
-2. **Local Search** — remove redundant groups that do not contribute unique coverage
-3. **Simulated Annealing** — probabilistic swap moves to escape local optima
+```bash
+python3 validate_against_baseline.py --only L_15_7_6_3,L_16_7_7_3 --time-limit 10 --ratio-threshold 1.21
+```
 
-Multiple independent attempts are run with different random seeds; the best result is returned.
-
-For full algorithmic details, see [SOLUTION.md](SOLUTION.md).
+The hardest measured cases are documented in [ALGORITHM.md](ALGORITHM.md). `L_15_7_5_5` currently measures 228/189 and `L_16_7_5_5` measures 328/283. The standalone `n16_solver.py` path verifies `L_16_7_5_5` in 21.809 seconds with ratio 1.1590, inside the requested 10%-20% comparison window.
