@@ -11,6 +11,7 @@ from n19_jk_specialized_module import is_n19_jk_small_s_direct_case
 from n19_jk_specialized_module import should_use_n19_jk_kminus1_sparse_tables
 from n19_jk_specialized_module import should_use_n19_jk_direct_lane
 from n19_jk_specialized_module import should_use_n19_jk_small_s_direct_lane
+from solver import CoveringDesignSolver as MainCoveringDesignSolver
 from solver_n19_isolated import CoveringDesignSolver
 
 
@@ -78,3 +79,23 @@ def test_n19_kminus1_sparse_tables_guard_is_large_k_only() -> None:
 
     solver_775 = CoveringDesignSolver(n=19, k=7, j=7, s=5, num_attempts=1, time_budget_sec=30.0)
     assert not should_use_n19_jk_kminus1_sparse_tables(solver_775)
+
+
+def test_main_solver_dispatches_n19_to_isolated_module() -> None:
+    messages: list[str] = []
+
+    def _cb(progress) -> None:
+        messages.append(progress.message)
+
+    solver = MainCoveringDesignSolver(
+        n=19,
+        k=7,
+        j=7,
+        s=3,
+        num_attempts=1,
+        time_budget_sec=5.0,
+        progress_cb=_cb,
+    )
+    result = solver.solve()
+    assert result.verified
+    assert any("n19 isolated dispatch" in msg for msg in messages)

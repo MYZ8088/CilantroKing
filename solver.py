@@ -733,6 +733,23 @@ class CoveringDesignSolver:
         # Delegate to TCoveringSolver if t > 1
         if hasattr(self, '_is_tcovering') and self._is_tcovering:
             return self._tcovering_solver.solve()
+
+        if self.__class__ is CoveringDesignSolver and self.n == 19:
+            from solver_n19_isolated import CoveringDesignSolver as N19IsolatedSolver
+
+            delegated = N19IsolatedSolver(
+                n=self.n,
+                k=self.k,
+                j=self.j,
+                s=self.s,
+                t=self.t,
+                progress_cb=self._cb,
+                cancel_fn=self._cancel,
+                num_attempts=self._num_attempts,
+                time_budget_sec=self._time_budget_sec,
+                skip_final_verify=self._skip_final_verify,
+            )
+            return delegated.solve()
         
         if self._identity_cover:
             return self._solve_identity_cover()
