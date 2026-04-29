@@ -1,0 +1,119 @@
+{
+  "solver_blocks": 1145,
+  "gap_ratio": 0.7507645259938838,
+  "elapsed_sec": 110.0642740726471,
+  "first_legal_elapsed_sec": 19.42824935913086,
+  "verified": true,
+  "log_tail": [
+    [
+      0.251,
+      "optimize",
+      "Phase-N18 specialized dispatch: L_18_7_7_6 -> family=j_eq_k_noncontain_medium_n, bucket=jk_dense_compress, strategy=n18_jk_dense_compress_v1, remaining=127.249"
+    ],
+    [
+      0.251,
+      "optimize",
+      "Phase-N18 jk-dense start: len=1242, one_block_hits=77, ultra=True"
+    ],
+    [
+      0.251,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood: try before fixed-size compression"
+    ],
+    [
+      0.251,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood: build coverage tables on demand"
+    ],
+    [
+      17.829,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood: fragile_targets=15288, vars=2142"
+    ],
+    [
+      19.142,
+      "optimize",
+      "Phase-N18 jk-dense round 1: improved to 1240 groups"
+    ],
+    [
+      19.428,
+      "optimize",
+      "Attempt 1/5: intensify coverage-topk from 1240 groups..."
+    ],
+    [
+      20.942,
+      "optimize",
+      "Destroy-repair improved to 1191 groups"
+    ],
+    [
+      22.095,
+      "optimize",
+      "Destroy-repair improved to 1166 groups"
+    ],
+    [
+      36.972,
+      "optimize",
+      "Best so far: 1166 groups (attempt 1)"
+    ],
+    [
+      36.972,
+      "optimize",
+      "Attempt 2/5: intensify weighted-topk from 1166 groups..."
+    ],
+    [
+      38.464,
+      "optimize",
+      "Destroy-repair improved to 1159 groups"
+    ],
+    [
+      53.905,
+      "optimize",
+      "Best so far: 1159 groups (attempt 2)"
+    ],
+    [
+      53.905,
+      "optimize",
+      "Attempt 3/5: intensify rarity-balance from 1159 groups..."
+    ],
+    [
+      70.14,
+      "optimize",
+      "Attempt 4/5: intensify repair-driven from 1159 groups..."
+    ],
+    [
+      86.29,
+      "optimize",
+      "Attempt 5/5: intensify explore-topk from 1159 groups..."
+    ],
+    [
+      102.273,
+      "optimize",
+      "Phase-N18 specialized dispatch: L_18_7_7_6 -> family=j_eq_k_noncontain_medium_n, bucket=jk_dense_compress, strategy=n18_jk_dense_compress_v1, remaining=25.227"
+    ],
+    [
+      102.273,
+      "optimize",
+      "Phase-N18 jk-dense start: len=1159, one_block_hits=77, ultra=True"
+    ],
+    [
+      102.273,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood: try before fixed-size compression"
+    ],
+    [
+      102.468,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood: fragile_targets=16233, vars=2059"
+    ],
+    [
+      109.307,
+      "optimize",
+      "Phase-N18 jk-dense ultra-neighborhood refined to 1147 groups"
+    ],
+    [
+      109.552,
+      "optimize",
+      "Phase-N18 jk-dense round 1: improved to 1145 groups"
+    ]
+  ]
+}

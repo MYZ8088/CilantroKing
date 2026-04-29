@@ -1,0 +1,38 @@
+[
+  {
+    "id": "L_18_7_7_6",
+    "baseline": 654,
+    "solver_blocks": 946,
+    "gap_ratio": 0.44648318042813456,
+    "elapsed_sec": 129.271057844162,
+    "first_legal_elapsed_sec": 0.22945857048034668,
+    "verified": true
+  },
+  {
+    "id": "L_18_6_6_5",
+    "baseline": 471,
+    "solver_blocks": 561,
+    "gap_ratio": 0.1910828025477707,
+    "elapsed_sec": 47.0095579624176,
+    "first_legal_elapsed_sec": 6.067695617675781,
+    "verified": true
+  },
+  {
+    "id": "L_18_5_5_4",
+    "baseline": 214,
+    "solver_blocks": 282,
+    "gap_ratio": 0.3177570093457944,
+    "elapsed_sec": 83.59497094154358,
+    "first_legal_elapsed_sec": 1.4962375164031982,
+    "verified": true
+  },
+  {
+    "id": "L_18_4_4_3",
+    "baseline": 93,
+    "solver_blocks": 112,
+    "gap_ratio": 0.20430107526881722,
+    "elapsed_sec": 126.62040734291077,
+    "first_legal_elapsed_sec": 0.2830781936645508,
+    "verified": true
+  }
+]

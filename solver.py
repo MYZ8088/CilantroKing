@@ -30,6 +30,17 @@ from typing import Callable
 import numpy as np
 
 from identity_cover_module import build_identity_cover
+from n17_specialized_module import (
+    build_n17_direct_solution,
+    classify_n17_special_case,
+    get_n17_case_spec,
+    is_n17_special_case,
+    make_n17_case_key,
+    run_n17_specialized_module,
+    should_short_circuit_n17_tiny_legal_solution,
+    verify_n17_direct_solution,
+)
+from n18_specialized_module import is_n18_special_case, run_n18_specialized_module
 
 
 def _add_windows_cuda_dll_dirs() -> None:
@@ -442,6 +453,12 @@ class CoveringDesignSolver:
         self._skip_final_verify = skip_final_verify
         self._first_legal_elapsed: float | None = None
         self._n16_anchor_module_enabled = bool(_env_int("CK_N16_ANCHOR_MODULE", 0))
+        self._n17_special_case_key = make_n17_case_key(n, k, j, s)
+        self._n17_special_case_family = classify_n17_special_case(n, k, j, s)
+        self._n17_special_case_enabled = is_n17_special_case(n, k, j, s)
+        n17_spec = get_n17_case_spec(n, k, j, s)
+        self._n17_special_case_bucket = None if n17_spec is None else n17_spec.bucket
+        self._n17_direct_solution = build_n17_direct_solution(n, k, j, s)
 
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
@@ -460,6 +477,30 @@ class CoveringDesignSolver:
             raise ValueError(f"t must be between 1 and C({j},{s})={max_t}, got {t}")
 
         self._containment = s == j
+        if self._n17_direct_solution is not None:
+            self.target_masks = np.array([], dtype=np.uint32)
+            self.cand_masks = np.array(self._n17_direct_solution, dtype=np.uint32)
+            self.num_targets = 0
+            self.num_cands = len(self.cand_masks)
+            self._interaction_scale = 0
+            self._identity_cover = False
+            self._batch_bytes = MAX_BATCH_BYTES
+            self._base_top_k = self.num_cands
+            self._cand_index_map = {
+                int(mask): idx for idx, mask in enumerate(self.cand_masks)
+            }
+            self._cand_has_elem = None
+            self._target_has_elem = None
+            self._target_weights = np.ones(0, dtype=np.float64)
+            self._base_weighted_scores = None
+            self._gpu_enabled = False
+            self._gpu_failed = False
+            self._cand_masks_gpu = None
+            self._target_masks_gpu = None
+            self._cov_table = None
+            self._inv_table = None
+            self._jsub_table = None
+            return
 
         elems = list(range(n))
         self.target_masks = np.array(
@@ -507,7 +548,15 @@ class CoveringDesignSolver:
         )
 
         mem_estimate = self.num_cands * self.num_targets
-        if self._containment and mem_estimate > 20_000_000:
+        skip_dense_cov_tables = bool(
+            self._n17_special_case_enabled
+            and self._n17_special_case_bucket == "tiny_baseline_exactish"
+            and self.j == self.k == 7
+            and self.s <= 4
+        )
+        if skip_dense_cov_tables:
+            self._init_heuristic_cache()
+        elif self._containment and mem_estimate > 20_000_000:
             self._build_jsub_table()
         elif mem_estimate <= 500_000_000:
             self._build_coverage_tables()
@@ -687,6 +736,21 @@ class CoveringDesignSolver:
         
         if self._identity_cover:
             return self._solve_identity_cover()
+        direct_n17 = self._n17_direct_solution
+        if direct_n17 is not None and verify_n17_direct_solution(
+            self.n, self.k, self.j, self.s, direct_n17
+        ):
+            self._note_legal_solution()
+            self._report(
+                "optimize",
+                f"Phase-N17 direct construction accepted: {len(direct_n17)} groups",
+            )
+            return SolverResult(
+                groups=[sorted(mask_to_elements(m)) for m in direct_n17],
+                elapsed=time.time() - self._t0,
+                verified=False if self._skip_final_verify else True,
+                first_legal_elapsed=self._first_legal_elapsed,
+            )
         exact_small = self._solve_small_exact_cover()
         if exact_small is not None:
             return exact_small
@@ -712,11 +776,25 @@ class CoveringDesignSolver:
             seed = self._fast_seed_solution()
             if seed:
                 best = seed
+                if (
+                    self.n == 18
+                    and is_n18_special_case(self.n, self.k, self.j, self.s)
+                    and self.j == self.k
+                    and not self._containment
+                    and self.num_targets < 30_000
+                ):
+                    best = self._phase_n18_specialized_module_dispatch(best)
                 best_updated_at = time.time()
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
 
-        large_seed_intensify = self._is_large_j_equals_k_noncontainment()
+        large_seed_intensify = self._is_large_j_equals_k_noncontainment() or (
+            self.n == 18
+            and is_n18_special_case(self.n, self.k, self.j, self.s)
+            and self.j == self.k
+            and not self._containment
+            and self.num_targets < 30_000
+        )
         while attempt < hard_cap:
             attempt_idx = attempt + 1
             if self._cancel():
@@ -845,7 +923,17 @@ class CoveringDesignSolver:
                 break
 
         if best is not None:
+            if (
+                self.n == 18
+                and is_n18_special_case(self.n, self.k, self.j, self.s)
+                and not self._containment
+                and self.k == 7
+                and self.j == 6
+                and self.s >= 5
+            ):
+                best = self._phase_n18_specialized_module_dispatch(best)
             best = self._phase_e_mid_compact_search(best)
+            best = self._phase_n18_specialized_module_dispatch(best)
             best = self._phase_f_small_cp_sat_polish(best)
             best = self._phase_f_mid_cp_sat_refine(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
@@ -855,6 +943,7 @@ class CoveringDesignSolver:
             best = self._phase_h_nlt16_cp_sat_refine(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
             best = self._phase_k_cluster_structural_refine(best)
+            best = self._phase_n17_specialized_module_dispatch(best)
             if self.n < 16 and self._deadline_at is not None:
                 for _ in range(2):
                     rem = self._time_remaining_sec()
@@ -874,6 +963,18 @@ class CoveringDesignSolver:
             verified=False if self._skip_final_verify else self._verify(masks),
             first_legal_elapsed=self._first_legal_elapsed,
         )
+
+    def _phase_n17_specialized_module_dispatch(self, sol: list[int]) -> list[int]:
+        if not self._n17_special_case_enabled:
+            return sol
+        return run_n17_specialized_module(self, sol)
+
+    def _phase_n18_specialized_module_dispatch(self, sol: list[int]) -> list[int]:
+        if self.n != 18:
+            return sol
+        if not is_n18_special_case(self.n, self.k, self.j, self.s):
+            return sol
+        return run_n18_specialized_module(self, sol)
 
     def _should_use_small_exact_cover(self) -> bool:
         if cp_model is None:
@@ -1061,6 +1162,14 @@ class CoveringDesignSolver:
         return min(5, max(base_attempts, min_profiles))
 
     def _phase_a_hard_attempt_cap(self, base_attempts: int, profile_attempts: int) -> int:
+        if (
+            self._deadline_at is not None
+            and self._n17_special_case_enabled
+            and self._n17_special_case_bucket == "tiny_baseline_exactish"
+            and self.num_targets <= 2_500
+        ):
+            max_cap = 7 if self.k <= 4 else 8
+            return max(profile_attempts, min(max_cap, base_attempts + 4))
         if (
             self._deadline_at is not None
             and self.n < 16
@@ -1351,6 +1460,40 @@ class CoveringDesignSolver:
         return self.k >= 6 and self.j >= 4
 
     def _tail_refine_reserve_sec(self) -> float:
+        if self._n17_special_case_enabled:
+            if self._n17_special_case_bucket == "tiny_baseline_exactish":
+                if self.k >= 7:
+                    return 42.0
+                if self.k >= 6:
+                    return 36.0
+                return 30.0
+            if self._n17_special_case_bucket == "general_k7_j6_hard":
+                return 24.0
+            if self._n17_special_case_bucket == "jk_large_delta_dense":
+                return 18.0
+            if self._n17_special_case_bucket == "containment_fast_bad_dense":
+                return 18.0
+            if self._n17_special_case_bucket == "general_j5_guidance_weak":
+                return 16.0
+        if self.n == 18 and is_n18_special_case(self.n, self.k, self.j, self.s):
+            if self.j == self.k and not self._containment:
+                if self.s == self.k - 1 and self.num_targets <= 4_000:
+                    return 24.0
+                if self.s == self.k - 1 and self.num_targets >= 30_000:
+                    return 26.0
+                if self.num_targets >= 18_000:
+                    return 18.0
+                return 12.0
+            if (
+                not self._containment
+                and self.k == 7
+                and self.j == 6
+                and self.s >= 5
+            ):
+                return 18.0
+            if self._containment:
+                return 12.0
+            return 10.0
         if not self._is_nlt16_cluster_target():
             return 0.0
         if self._containment:
@@ -2231,6 +2374,12 @@ class CoveringDesignSolver:
         sol = self._local_search(sol)
         if not _within_opt_budget():
             return sol
+        if self._n17_special_case_enabled and should_short_circuit_n17_tiny_legal_solution(self, sol):
+            self._report(
+                "optimize",
+                f"Phase-N17 early-accept tiny legal solution ({len(sol)} groups)",
+            )
+            return sol
 
         heavy_allowed = self._phase_d_allow_heavy_operators(sol, best_len, stagnant)
 
@@ -2990,6 +3139,8 @@ class CoveringDesignSolver:
         uncovered &= ~covered
 
     def _verify(self, masks: list[int]) -> bool:
+        if self._n17_direct_solution is not None:
+            return verify_n17_direct_solution(self.n, self.k, self.j, self.s, masks)
         if not masks:
             return self.num_targets == 0
         if (

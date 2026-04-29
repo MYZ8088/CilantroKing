@@ -1,0 +1,9 @@
+{
+  "id": "L_18_7_7_6",
+  "baseline": 654,
+  "solver_blocks": 946,
+  "gap_ratio": 0.44648318042813456,
+  "elapsed_sec": 130.27782583236694,
+  "first_legal_elapsed_sec": 0.260648250579834,
+  "verified": true
+}
