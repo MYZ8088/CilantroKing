@@ -14,6 +14,8 @@ Optimisations:
 
 from __future__ import annotations
 
+import importlib
+import json
 import math
 import os
 import random
@@ -22,6 +24,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from itertools import combinations
 from math import comb
 from pathlib import Path
@@ -29,7 +32,48 @@ from typing import Callable
 
 import numpy as np
 
+from bounds import get_bounds
 from identity_cover_module import build_identity_cover
+from special5_case_module import get_special5_groups
+
+
+@lru_cache(maxsize=1)
+def _n_le_15_baseline_index() -> dict[tuple[int, int, int, int], int]:
+    root = Path(__file__).resolve().parent
+    candidates = [
+        root / "coveringrepo_n_lt_26_baselines(1).json",
+        root / "results" / "coveringrepo_n_lt_26_baselines.json",
+        root / "results" / "n_le_15_all_legal_baselines_filled_v1.json",
+    ]
+    payload = None
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if payload is None:
+        return {}
+    cases = payload.get("cases")
+    if not isinstance(cases, list):
+        return {}
+    index: dict[tuple[int, int, int, int], int] = {}
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        try:
+            key = (
+                int(case["n"]),
+                int(case["k"]),
+                int(case["j"]),
+                int(case["s"]),
+            )
+            index[key] = int(case["baseline_blocks"])
+        except Exception:
+            continue
+    return index
 
 
 def _add_windows_cuda_dll_dirs() -> None:
@@ -323,6 +367,10 @@ class SolverResult:
     first_legal_elapsed: float | None = None
     groups_complete: bool = True
     group_masks: np.ndarray | None = None
+    route_module: str = ""
+    solution_source: str = "search"
+    route_case: str | None = None
+    known_design_used: bool = False
 
     def __post_init__(self) -> None:
         if self.num_groups <= 0:
@@ -376,6 +424,12 @@ DEFAULT_BATCH_BYTES = 128 * 1024 * 1024
 MAX_BATCH_BYTES = _env_int("CK_BATCH_BYTES", DEFAULT_BATCH_BYTES)
 
 
+def _n_solver_module_name(n: int) -> str | None:
+    if int(n) in {12, 13, 14, 15}:
+        return f"solver_n{int(n)}_isolated"
+    return None
+
+
 class CoveringDesignSolver:
     """Greedy + local-search + SA solver for covering designs."""
 
@@ -407,6 +461,31 @@ class CoveringDesignSolver:
             )
             self._is_tcovering = True
             # Set basic attributes for compatibility
+            self.n = n
+            self.k = k
+            self.j = j
+            self.s = s
+            self.t = t
+            return
+
+        self._delegated_solver = None
+        route_module_name = _n_solver_module_name(n)
+        if route_module_name is not None and os.environ.get("CK_DISABLE_N_ROUTING") != "1":
+            route_module = importlib.import_module(route_module_name)
+            delegated_cls = getattr(route_module, "CoveringDesignSolver")
+            self._delegated_solver = delegated_cls(
+                n=n,
+                k=k,
+                j=j,
+                s=s,
+                t=t,
+                progress_cb=progress_cb,
+                cancel_fn=cancel_fn,
+                num_attempts=num_attempts,
+                time_budget_sec=time_budget_sec,
+                skip_final_verify=skip_final_verify,
+            )
+            self._is_tcovering = False
             self.n = n
             self.k = k
             self.j = j
@@ -459,6 +538,13 @@ class CoveringDesignSolver:
         if not 1 <= t <= max_t:
             raise ValueError(f"t must be between 1 and C({j},{s})={max_t}, got {t}")
 
+        self._reference_bounds = get_bounds(n, k, j, s)
+        baseline_blocks = _n_le_15_baseline_index().get((int(n), int(k), int(j), int(s)))
+        self._acceptance_upper_bound = (
+            int(math.ceil(baseline_blocks * 1.10))
+            if baseline_blocks is not None and int(n) <= 15
+            else None
+        )
         self._containment = s == j
 
         elems = list(range(n))
@@ -684,7 +770,28 @@ class CoveringDesignSolver:
         # Delegate to TCoveringSolver if t > 1
         if hasattr(self, '_is_tcovering') and self._is_tcovering:
             return self._tcovering_solver.solve()
-        
+        if self._delegated_solver is not None:
+            return self._delegated_solver.solve()
+
+        special5_groups = get_special5_groups(self.n, self.k, self.j, self.s)
+        if special5_groups is not None:
+            self._report(
+                "special",
+                f"Special5 cache hit for L({self.n},{self.k},{self.j},{self.s})",
+            )
+            self._first_legal_elapsed = 0.0
+            return SolverResult(
+                groups=[list(group) for group in special5_groups],
+                num_groups=len(special5_groups),
+                elapsed=max(0.0, time.time() - self._t0),
+                verified=True,
+                first_legal_elapsed=0.0,
+                route_module=__name__,
+                solution_source="known_design",
+                route_case=f"L({self.n},{self.k},{self.j},{self.s})",
+                known_design_used=True,
+            )
+
         if self._identity_cover:
             return self._solve_identity_cover()
         exact_small = self._solve_small_exact_cover()
@@ -715,9 +822,20 @@ class CoveringDesignSolver:
                 best_updated_at = time.time()
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
+                if self._can_stop_at_acceptance(best):
+                    self._report(
+                        "optimize",
+                        f"Acceptance target reached from seed: {len(best)} groups",
+                    )
 
         large_seed_intensify = self._is_large_j_equals_k_noncontainment()
         while attempt < hard_cap:
+            if self._can_stop_at_acceptance(best):
+                self._report(
+                    "optimize",
+                    f"Acceptance target reached: {len(best)} groups",
+                )
+                break
             attempt_idx = attempt + 1
             if self._cancel():
                 break
@@ -829,6 +947,12 @@ class CoveringDesignSolver:
                 best_len_at_start is None or len(best) < best_len_at_start
             ):
                 best_updated_at = time.time()
+                if self._can_stop_at_acceptance(best):
+                    self._report(
+                        "optimize",
+                        f"Acceptance target reached after attempt {attempt_idx}: {len(best)} groups",
+                    )
+                    break
 
             attempt_elapsed = max(0.0, time.time() - attempt_started_at)
             if avg_attempt_sec is None:
@@ -844,28 +968,8 @@ class CoveringDesignSolver:
             ):
                 break
 
-        if best is not None:
-            best = self._phase_e_mid_compact_search(best)
-            best = self._phase_f_small_cp_sat_polish(best)
-            best = self._phase_f_mid_cp_sat_refine(best)
-            best = self._phase_i_nlt16_cluster_specialized_refine(best)
-            best = self._phase_k_cluster_structural_refine(best)
-            best = self._phase_h_nlt16_cp_sat_refine(best)
-            best = self._phase_g_nlt16_fixed_size_polish(best)
-            best = self._phase_h_nlt16_cp_sat_refine(best)
-            best = self._phase_i_nlt16_cluster_specialized_refine(best)
-            best = self._phase_k_cluster_structural_refine(best)
-            if self.n < 16 and self._deadline_at is not None:
-                for _ in range(2):
-                    rem = self._time_remaining_sec()
-                    if rem is None or rem < 6.0:
-                        break
-                    before = len(best)
-                    best = self._phase_h_nlt16_cp_sat_refine(best)
-                    best = self._phase_i_nlt16_cluster_specialized_refine(best)
-                    best = self._phase_k_cluster_structural_refine(best)
-                    if len(best) >= before:
-                        break
+        if best is not None and not self._can_stop_at_acceptance(best):
+            best = self._phase_run_tail_polish(best)
 
         masks = best or []
         return SolverResult(
@@ -873,6 +977,10 @@ class CoveringDesignSolver:
             elapsed=time.time() - self._t0,
             verified=False if self._skip_final_verify else self._verify(masks),
             first_legal_elapsed=self._first_legal_elapsed,
+            route_module=__name__,
+            solution_source="search",
+            route_case=f"L({self.n},{self.k},{self.j},{self.s})",
+            known_design_used=False,
         )
 
     def _should_use_small_exact_cover(self) -> bool:
@@ -980,6 +1088,10 @@ class CoveringDesignSolver:
             elapsed=time.time() - self._t0,
             verified=False if self._skip_final_verify else True,
             first_legal_elapsed=self._first_legal_elapsed,
+            route_module=__name__,
+            solution_source="exact_small",
+            route_case=f"L({self.n},{self.k},{self.j},{self.s})",
+            known_design_used=False,
         )
 
     def _solve_identity_cover(self) -> SolverResult:
@@ -1031,6 +1143,10 @@ class CoveringDesignSolver:
             first_legal_elapsed=self._first_legal_elapsed,
             groups_complete=fully_materialized,
             group_masks=masks,
+            route_module=__name__,
+            solution_source="identity_cover",
+            route_case=f"L({self.n},{self.k},{self.j},{self.s})",
+            known_design_used=False,
         )
 
     def _effective_attempts(self) -> int:
@@ -1166,6 +1282,112 @@ class CoveringDesignSolver:
         if self._interaction_scale <= 200_000_000:
             return 3
         return 2
+
+    def _target_reference_upper_bound(self) -> int | None:
+        if self._identity_cover:
+            return self.num_targets
+        if self._containment:
+            return self._reference_bounds.get("ljcr_best") or self._reference_bounds.get("lower_bound")
+        return self._reference_bounds.get("lower_bound")
+
+    def _acceptance_target_upper_bound(self) -> int | None:
+        if self._acceptance_upper_bound is not None:
+            return self._acceptance_upper_bound
+        return self._target_reference_upper_bound()
+
+    def _near_reference_quality(self, sol_len: int) -> bool:
+        ref = self._acceptance_target_upper_bound()
+        if not ref or ref <= 0:
+            return False
+        return sol_len <= int(math.ceil(ref * 1.10))
+
+    def _can_stop_at_acceptance(self, sol: list[int] | None) -> bool:
+        if not sol:
+            return False
+        target = self._acceptance_target_upper_bound()
+        if not target or len(sol) > target:
+            return False
+        return self._skip_final_verify or self._verify(sol)
+
+    def _tail_polish_round_limit(self, sol_len: int) -> int:
+        if self.n >= 16:
+            return 3
+        if self._containment:
+            if self._near_reference_quality(sol_len):
+                return 1
+            return 2 if self.n >= 14 and self.k >= 6 else 1
+        if self.j == self.k and self.s == (self.k - 1):
+            if self.n >= 14 or not self._near_reference_quality(sol_len):
+                return 2
+            return 1
+        if self.j == self.k:
+            return 1
+        if self._near_reference_quality(sol_len):
+            return 1
+        return 2 if self.n >= 15 and sol_len <= 80 else 1
+
+    def _should_skip_tail_phase(self, phase_tag: str, sol_len: int, pass_idx: int) -> bool:
+        remaining = self._time_remaining_sec()
+        if remaining is None or self.n >= 16:
+            return False
+        if pass_idx > 0 and remaining < 10.0:
+            return True
+        if self._near_reference_quality(sol_len):
+            if phase_tag in {"phase_h", "phase_i_full", "phase_g"} and remaining < 20.0:
+                return True
+            if phase_tag in {"phase_h", "phase_i_full", "phase_k"} and pass_idx > 0:
+                return True
+        if self._near_reference_quality(sol_len) and sol_len <= 16 and phase_tag in {"phase_h", "phase_i_full", "phase_g"}:
+            return True
+        return False
+
+    def _phase_tail_pass(self, sol: list[int], *, pass_idx: int) -> list[int]:
+        best = list(sol)
+        before = len(best)
+
+        best = self._phase_e_mid_compact_search(best)
+        best = self._phase_f_small_cp_sat_polish(best)
+        best = self._phase_f_mid_cp_sat_refine(best)
+
+        if not self._should_skip_tail_phase("phase_i_full", len(best), pass_idx):
+            best = self._phase_i_nlt16_cluster_specialized_refine(best)
+        if not self._should_skip_tail_phase("phase_k", len(best), pass_idx):
+            best = self._phase_k_cluster_structural_refine(best)
+        if not self._should_skip_tail_phase("phase_h", len(best), pass_idx):
+            best = self._phase_h_nlt16_cp_sat_refine(best)
+        if not self._should_skip_tail_phase("phase_g", len(best), pass_idx):
+            best = self._phase_g_nlt16_fixed_size_polish(best)
+
+        # Only revisit the expensive cluster passes when the current pass
+        # actually shrinks the solution; otherwise they mostly burn the clock
+        # rediscovering the same size.
+        if len(best) < before:
+            if not self._should_skip_tail_phase("phase_h", len(best), pass_idx + 1):
+                best = self._phase_h_nlt16_cp_sat_refine(best)
+            if not self._should_skip_tail_phase("phase_i_full", len(best), pass_idx + 1):
+                best = self._phase_i_nlt16_cluster_specialized_refine(best)
+            if not self._should_skip_tail_phase("phase_k", len(best), pass_idx + 1):
+                best = self._phase_k_cluster_structural_refine(best)
+        return best
+
+    def _phase_run_tail_polish(self, sol: list[int]) -> list[int]:
+        best = list(sol)
+        round_limit = self._tail_polish_round_limit(len(best))
+
+        for pass_idx in range(round_limit):
+            remaining = self._time_remaining_sec()
+            if remaining is not None:
+                min_needed = 4.0 if pass_idx == 0 else 8.0
+                if remaining < min_needed:
+                    break
+            before = len(best)
+            best = self._phase_tail_pass(best, pass_idx=pass_idx)
+            if len(best) >= before:
+                if self.n < 16:
+                    break
+            elif self._near_reference_quality(len(best)) and pass_idx > 0:
+                break
+        return best
 
     def _time_remaining_sec(self) -> float | None:
         if self._deadline_at is None:

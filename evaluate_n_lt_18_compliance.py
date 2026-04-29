@@ -22,7 +22,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "results"
-DEFAULT_BASELINE = RESULTS_DIR / "coveringrepo_n_lt_26_baselines.json"
+DEFAULT_BASELINE = ROOT / "coveringrepo_n_lt_26_baselines(1).json"
 DEFAULT_OUTPUT_JSON = RESULTS_DIR / "n_lt_18_compliance_120s_10pct_gpu.json"
 DEFAULT_OUTPUT_MD = RESULTS_DIR / "n_lt_18_compliance_120s_10pct_gpu.md"
 DEFAULT_SPLIT_MD = RESULTS_DIR / "n_lt_16_vs_n_ge_16_lt_18_analysis_gpu.md"
@@ -144,6 +144,10 @@ def _run_one_case_locally(
             "solver_verified": bool(solved.verified),
             "solver_module": solver_module_name,
             "solver_profile": solver_profile_name,
+            "route_module": str(getattr(solved, "route_module", "") or solver_module_name),
+            "solution_source": str(getattr(solved, "solution_source", "search") or "search"),
+            "route_case": getattr(solved, "route_case", None),
+            "known_design_used": bool(getattr(solved, "known_design_used", False)),
             "error": None,
         }
     except Exception as exc:  # pragma: no cover - defensive path.
@@ -156,6 +160,10 @@ def _run_one_case_locally(
             "solver_verified": False,
             "solver_module": solver_module_name,
             "solver_profile": solver_profile_name,
+            "route_module": solver_module_name,
+            "solution_source": "error",
+            "route_case": None,
+            "known_design_used": False,
             "error": str(exc),
         }
 
@@ -282,6 +290,10 @@ def _run_one_case_subprocess(
         payload["elapsed_sec"] = float(elapsed)
     payload.setdefault("solver_module", solver_config.ck_solver_module)
     payload.setdefault("solver_profile", solver_config.profile_name)
+    payload.setdefault("route_module", solver_config.ck_solver_module)
+    payload.setdefault("solution_source", "search")
+    payload.setdefault("route_case", None)
+    payload.setdefault("known_design_used", False)
     return payload
 
 
@@ -304,6 +316,10 @@ def _evaluate_case(
     solver_verified = bool(run_result.get("solver_verified", False))
     solver_module = str(run_result.get("solver_module", "solver"))
     solver_profile = str(run_result.get("solver_profile", "default"))
+    route_module = str(run_result.get("route_module", solver_module))
+    solution_source = str(run_result.get("solution_source", "search"))
+    route_case = run_result.get("route_case")
+    known_design_used = bool(run_result.get("known_design_used", False))
 
     gap_ratio = None
     abs_gap_ratio = None
@@ -358,6 +374,10 @@ def _evaluate_case(
         "solver_verified": solver_verified,
         "solver_module": solver_module,
         "solver_profile": solver_profile,
+        "route_module": route_module,
+        "solution_source": solution_source,
+        "route_case": route_case,
+        "known_design_used": known_design_used,
         "verified_ok": verified_ok,
         "compliant": compliant,
         "error": run_result.get("error"),

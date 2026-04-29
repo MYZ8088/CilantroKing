@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_BENCHMARKS = ROOT / "benchmark_cases.json"
 RESULTS_DIR = ROOT / "results"
 DEFAULT_OUTPUT = RESULTS_DIR / "latest_eval.json"
-DEFAULT_BASELINE = RESULTS_DIR / "baseline.json"
+DEFAULT_BASELINE = ROOT / "coveringrepo_n_lt_26_baselines(1).json"
 
 
 def _git_value(*args: str) -> str | None:

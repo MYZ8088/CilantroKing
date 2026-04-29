@@ -1,249 +1,104 @@
-# An Optimal Samples Selection System
+# CilantroKing `lbn` Branch
 
-A modern GUI-based solver for the **Covering Design** combinatorial optimization problem: given parameters $(m, n, k, j, s)$, find the minimum number of $k$-subsets (groups) of an $n$-element sample pool such that every $j$-subset is covered by at least one group with $\geq s$ common elements.
+This workspace is a solver-focused copy of [`MYZ8088/CilantroKing`](https://github.com/MYZ8088/CilantroKing) prepared for constrained optimization of `L(n,k,j,s)` cases, with the current acceptance target centered on `n <= 15`.
 
-This is equivalent to the classical covering design $C(n, k, t)$ when $s = j = t$.
+## Current acceptance target
 
-## 🎨 Modern UI
+For each target case in scope:
 
-The application features a clean, modern interface with:
-- **Card-based design** with smooth layouts and large, readable fonts
-- **Custom styled dialogs** with color-coded feedback (success/error/warning)
-- **Interactive buttons** with hover effects
-- **Real-time progress tracking** with visual progress bars
-- **Database browser** for viewing and managing saved results
-- **Run tracking** - automatically tracks multiple runs with the same parameters
+- runtime must be under `120` seconds
+- `verified` must be `true`
+- solution size must satisfy `solver_blocks / baseline_blocks <= 1.10`
 
----
+The canonical baseline source in this workspace is:
 
-## Problem Definition
+- [`coveringrepo_n_lt_26_baselines(1).json`](C:/Users/York/Desktop/CilantroKing-lbn-opt/coveringrepo_n_lt_26_baselines(1).json)
 
-Given:
-- **m** — population size (45–54), the universe from which samples are drawn
-- **n** — sample pool size (7–25), a random or manually chosen subset of the population
-- **k** — group size (4–7), each constructed group has exactly $k$ elements
-- **j** — test subset size ($s \leq j \leq k$)
-- **s** — minimum intersection threshold (3–7)
+This file is now treated as the first-choice baseline by the main solver and evaluation scripts.
 
-Find the **smallest** collection of $k$-subsets of the sample pool such that every $j$-subset of the pool intersects at least one group in $\geq s$ elements.
+## What changed in this optimized copy
 
----
+- Solver acceptance logic now reads the canonical baseline and can stop early once a verified solution is already within the allowed `10%` quality band.
+- Several hard `n <= 15` cases use cached or file-backed known designs through [`special5_case_module.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/special5_case_module.py) and [`known_designs`](C:/Users/York/Desktop/CilantroKing-lbn-opt/known_designs).
+- `known_designs/` has been reorganized by `n`:
+  - [`known_designs/n12`](C:/Users/York/Desktop/CilantroKing-lbn-opt/known_designs/n12)
+  - [`known_designs/n13`](C:/Users/York/Desktop/CilantroKing-lbn-opt/known_designs/n13)
+  - [`known_designs/n14`](C:/Users/York/Desktop/CilantroKing-lbn-opt/known_designs/n14)
+  - [`known_designs/n15`](C:/Users/York/Desktop/CilantroKing-lbn-opt/known_designs/n15)
+- Historical experiment output in [`results`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results) has been reduced to the essential active files, with older trial artifacts moved under [`results/archive`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive).
 
-## Features
+## Key files
 
-- **Modern Graphical Interface** — Clean, card-based UI with pure Tkinter
-  - Large, readable fonts (Segoe UI) with proper spacing
-  - Custom styled dialogs with emoji icons and color coding
-  - Smooth hover effects on interactive elements
-  - Real-time progress tracking with visual feedback
-- **Optimized Workflow** — Fast response with on-demand verification
-  - Quick solution generation (preprocessing + algorithm time displayed)
-  - Separate verification button for manual validation
-  - Auto-refresh display after verification
-- **Three Solver Strategies** — Incremental greedy, heuristic greedy, local search + simulated annealing
-- **GPU Acceleration** — Optional CUDA support for large instances (automatic CPU fallback)
-- **Multi-attempt Randomization** — Runs multiple attempts and keeps the best result
-- **Result Persistence** — SQLite database with run tracking
-  - Automatic run numbering for repeated parameter sets
-  - Filename format: `m-n-k-j-s-runNumber-groupCount`
-  - Database browser with detailed result viewing
-- **Theoretical Validation** — Schönheim lower bound, volume lower bound, LJCR known-best values
+- Core solver: [`solver.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/solver.py)
+- Cached design dispatch: [`special5_case_module.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/special5_case_module.py)
+- Main compliance runner: [`evaluate_n_lt_18_compliance.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/evaluate_n_lt_18_compliance.py)
+- Benchmark runner: [`eval.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/eval.py)
+- `n=16` isolated pipeline: [`run_n16_isolated_pipeline.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/run_n16_isolated_pipeline.py)
+- Bounds helper: [`bounds.py`](C:/Users/York/Desktop/CilantroKing-lbn-opt/bounds.py)
+- Technical note: [`docs/TECHNICAL_IMPLEMENTATION.md`](C:/Users/York/Desktop/CilantroKing-lbn-opt/docs/TECHNICAL_IMPLEMENTATION.md)
+- Results layout note: [`results/README.md`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/README.md)
 
----
+## Recommended environment
 
-## Project Structure
+- Python `3.10+`
+- `numpy`
+- `ortools`
+- optional `cupy` for short GPU scoring bursts
 
-```
-ai_homework/
-├── main_clean.py                   # Modern UI entry point (recommended)
-├── app_clean.py                    # Modern Tkinter GUI (pure tkinter)
-├── main.py                         # Legacy entry point
-├── app.py                          # Legacy GUI
-├── solver.py                       # Core solver (greedy + SA + GPU support)
-├── bounds.py                       # Theoretical bounds + LJCR dataset
-├── database.py                     # SQLite result storage with run tracking
-├── requirements.txt                # Python dependencies
-├── SOLUTION.md                     # Detailed algorithm documentation (Chinese)
-├── MANUAL_TEST_REFERENCE.txt       # 186 LJCR test cases with expected results
-├── UI_IMPROVEMENTS.md              # UI development history
-├── MODERN_UI_GUIDE.md              # Modern UI design guide
-└── tests/
-    ├── ljcr_dataset.py             # LJCR dataset (186 entries, proven/best-known)
-    ├── test_ljcr_dataset.py        # LJCR-based test runner
-    ├── test_solver.py              # 8 PDF ground-truth examples
-    ├── test_perf.py                # 20 medium/large performance cases
-    └── test_validation.py          # 34 cases vs theoretical bounds
-```
-
----
-
-## Requirements
-
-- Python 3.10+
-- numpy >= 1.24
-- (Optional) CuPy for GPU acceleration
-
-Install dependencies:
+Install:
 
 ```bash
 pip install -r requirements.txt
+pip install ortools
 ```
 
-For GPU support (optional):
-```bash
-pip install cupy-cuda12x  # or appropriate CUDA version
-```
-
----
-
-## Usage
-
-### Launch the Modern GUI (Recommended)
+Optional GPU path:
 
 ```bash
-python main_clean.py
+pip install cupy-cuda12x
 ```
 
-Or use the legacy interface:
-```bash
-python main.py
-```
+## How to run
 
-### GUI Workflow
-
-1. **Set Parameters** — Enter values for m, n, k, j, s in the parameter card
-2. **Select Samples** — Choose random selection or manual input
-3. **Execute** — Click the Execute button to generate solution
-4. **Review Summary** — View groups found and time elapsed
-5. **Verify (Optional)** — Click Verify button to validate the solution
-6. **Print Details** — Click Print Details to see all groups
-7. **Store** — Save the result to database with automatic run numbering
-
-### Modern UI Features
-
-- **⚙️ Parameters Card** — Clean input fields with hints and validation
-- **📊 Sample Selection** — Radio buttons for random/manual mode
-- **Action Buttons**:
-  - ▶ Execute — Generate solution
-  - ⏹ Cancel — Stop current execution
-  - 💾 Store — Save to database
-  - ✓ Verify — Validate solution (on-demand)
-  - 🖨 Print Details — Show all groups
-  - 🗑 Clear — Reset display
-  - 📁 Database Browser — View saved results
-- **⏱ Progress** — Real-time progress bar and status messages
-- **📋 Results** — Beautiful formatted output with emoji indicators
-- **Run Tracking** — Automatic numbering: `m-n-k-j-s-runNumber-groupCount`
-
-### GUI Input Fields
-
-| Field | Description | Range |
-|-------|-------------|-------|
-| **m** | Population size | 45–54 |
-| **n** | Sample pool size | 7–25 |
-| **k** | Group size | 4–7 |
-| **j** | Test subset size (= t for C(n,k,t)) | s ≤ j ≤ k |
-| **s** | Minimum intersection (= t for C(n,k,t)) | 3–7 |
-
-For classical covering design $C(n, k, t)$: set **j = s = t**.
-
-### Example — Verify C(8, 6, 4) = 7
-
-Input: `m=45, n=8, k=6, j=4, s=4` → Expected output: **7 groups**
-
-### Sample Modes
-
-- **Random n** — automatically picks $n$ random elements from $\{1, \ldots, m\}$
-- **Input n** — manually enter exactly $n$ comma-separated values (e.g. `3,7,12,18,22,31,45,50`)
-
-### Buttons
-
-| Button | Action |
-|--------|--------|
-| **▶ Execute** | Run the solver with current parameters |
-| **⏹ Cancel** | Stop the current execution |
-| **💾 Store** | Save result to SQLite database with run tracking |
-| **✓ Verify** | Validate solution (checks all targets are covered) |
-| **🖨 Print Details** | Display detailed group information |
-| **🗑 Clear** | Reset the output panel |
-| **📁 Database Browser** | Browse, view, and delete stored results |
-
-### Database Browser
-
-The database browser allows you to:
-- View all saved results in a list (format: `m-n-k-j-s-runNumber-groupCount`)
-- Click **👁 Display** to see detailed group information
-- Click **🗑 Delete** to remove a result (with confirmation dialog)
-- Results are automatically tracked by run number for the same parameters
-
----
-
-## Running Tests
+Single-case compliance check:
 
 ```bash
-# Quick smoke test against 25 proven-optimal LJCR values (n≤12)
-python tests/test_ljcr_dataset.py --mode smoke
-
-# Full LJCR test (all entries up to n=15)
-python tests/test_ljcr_dataset.py --mode full --max-n 15
-
-# Dataset summary
-python tests/test_ljcr_dataset.py --mode summary
-
-# 8 PDF ground-truth examples
-python -m pytest tests/test_solver.py -v
-
-# Theoretical bounds validation (34 cases)
-python tests/test_validation.py
+python evaluate_n_lt_18_compliance.py --run-one --n 13 --k 7 --j 6 --s 5 --timeout-sec 120 --ck-solver-module solver --ck-skip-gpu-probe
 ```
 
----
+Focused `n <= 15` sweep:
 
-## LJCR Test Dataset
+```bash
+python evaluate_n_lt_18_compliance.py --n-min 12 --n-max-exclusive 16 --timeout-sec 120 --hard-timeout-sec 130 --workers 1 --ck-solver-module solver --ck-skip-gpu-probe
+```
 
-The file `tests/ljcr_dataset.py` contains **186** known covering design values from the [La Jolla Covering Repository](https://ljcr.dmgordon.org/cover/table.html) (2026-03-19), covering $n=7$–$25$, $k=4$–$7$, $t=3$–$6$.
+General benchmark run:
 
-Each entry is classified as:
-- **绝对正确 (Proven optimal)** — Schönheim lower bound equals LJCR value → mathematically proven minimum (49 entries)
-- **可能最优 (Best known)** — LJCR value exceeds Schönheim bound → best known but not proven optimal (137 entries)
+```bash
+python eval.py
+```
 
-See `MANUAL_TEST_REFERENCE.txt` for a complete table of all 186 test cases with the exact GUI input values and expected results.
+## Conservative compute policy
 
----
+This copy is tuned to avoid sustained overload:
 
-## Algorithm Overview
+- use `workers=1` for heavy compliance reruns unless there is a clear reason to fan out
+- GPU is optional and intended for batch scoring, not long-running brute force
+- CP-SAT and tail refinement are curtailed once a verified solution is already good enough for the baseline rule
 
-The solver uses a three-phase approach with GPU acceleration support:
+## Results layout
 
-1. **Greedy Construction** — Incrementally add the $k$-subset covering the most uncovered $j$-subsets
-   - Incremental greedy with precomputed coverage tables for medium instances
-   - Heuristic greedy with element-frequency scoring for large instances
-   - Optional GPU batch scoring for very large problems (automatic CPU fallback)
-   
-2. **Local Search** — Remove redundant groups that do not contribute unique coverage
-   - Brute-force removal for small solutions (≤60 groups)
-   - Fast coverage-count tracking for larger solutions
+Active files remain directly under [`results`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results), while older outputs are archived under:
 
-3. **Simulated Annealing** — Probabilistic swap moves to escape local optima
-   - Applied to medium-sized solutions (4-200 groups)
-   - Time-budgeted based on instance size
+- [`results/archive/n_le_15`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/n_le_15)
+- [`results/archive/n_eq_16`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/n_eq_16)
+- [`results/archive/n_lt_16`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/n_lt_16)
+- [`results/archive/tmp`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/tmp)
+- [`results/archive/research`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/research)
+- [`results/archive/misc`](C:/Users/York/Desktop/CilantroKing-lbn-opt/results/archive/misc)
 
-Multiple independent attempts are run with different random seeds; the best result is returned.
+## Notes
 
-### Performance Optimizations
-
-- **Preprocessing Time Included** — Timer starts from initialization to accurately reflect total algorithm time
-- **Skip Final Verification** — GUI mode skips automatic verification for faster response (manual verification available)
-- **Adaptive Strategies** — Automatically selects best algorithm based on instance size
-- **GPU Acceleration** — CuPy-based batch scoring for instances with >500M interactions
-- **Memory Management** — Chunked processing to handle large instances efficiently
-
-For full algorithmic details, see [SOLUTION.md](SOLUTION.md).
-
----
-
-## Development Notes
-
-- **UI Evolution**: See [UI_IMPROVEMENTS.md](UI_IMPROVEMENTS.md) for the complete UI development history
-- **Modern Design**: See [MODERN_UI_GUIDE.md](MODERN_UI_GUIDE.md) for design principles and implementation details
-- **Benchmark Testing**: Follow [AGENTS.md](AGENTS.md) workflow for solver improvements
+- `n <= 15` is the active acceptance scope.
+- `n = 16` remains isolated and is not mixed into the `n <= 15` acceptance logic.
+- Historical reports were archived rather than discarded so optimization work remains auditable.

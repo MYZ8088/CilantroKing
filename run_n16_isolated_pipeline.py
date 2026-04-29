@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 EVAL_SCRIPT = ROOT / "evaluate_n_lt_18_compliance.py"
 RESULTS_DIR = ROOT / "results"
 
-DEFAULT_BASELINE = RESULTS_DIR / "coveringrepo_n_lt_26_baselines.json"
+DEFAULT_BASELINE = ROOT / "coveringrepo_n_lt_26_baselines(1).json"
 DEFAULT_OUTPUT_JSON = RESULTS_DIR / "n_eq_16_isolated_pipeline.json"
 DEFAULT_OUTPUT_MD = RESULTS_DIR / "n_eq_16_isolated_pipeline.md"
 DEFAULT_SPLIT_MD = RESULTS_DIR / "n_eq_16_isolated_pipeline_split.md"
