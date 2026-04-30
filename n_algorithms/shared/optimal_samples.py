@@ -10,7 +10,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
-from solver_dispatcher import SolverTools, dispatch_solver
+from n_algorithms.shared.solver_dispatcher import SolverTools, dispatch_solver
 
 
 SYSTEM_TITLE = "An Optimal Samples Selection System"

@@ -195,7 +195,7 @@ def is_hard_15_7_5(problem: Any) -> bool:
 
 
 def recursive_covering_indices(config: NSolverConfig, problem: Any, rng: Any, deadline: float, tools: Any) -> tuple[int, ...]:
-    if problem.j != problem.s or problem.s < 3 or problem.k <= problem.j or problem.n - 1 < problem.k:
+    if problem.s <= 3 or problem.n - 1 < problem.k:
         return tuple()
     if problem.n - 1 not in N_SOLVER_CONFIGS:
         return tuple()
@@ -1013,3 +1013,88 @@ def solve_orbit_ilp(
     if coverage != full_mask:
         return tuple()
     return tuple(dict.fromkeys(selected))
+
+
+class CoveringDesignSolver:
+    """Root-level adapter for the dedicated n=15 algorithm."""
+
+    def __init__(
+        self,
+        n: int,
+        k: int,
+        j: int,
+        s: int,
+        t: int = 1,
+        *,
+        progress_cb: Any | None = None,
+        cancel_fn: Any | None = None,
+        num_attempts: int = 3,
+        time_budget_sec: float | None = None,
+        skip_final_verify: bool = False,
+    ) -> None:
+        if int(n) != 15:
+            raise ValueError(f"n15_solver only handles n=15, got n={n}")
+        if int(t) != 1:
+            raise ValueError("n15_solver only supports t=1")
+        self.n = int(n)
+        self.k = int(k)
+        self.j = int(j)
+        self.s = int(s)
+        self.t = int(t)
+        self._progress_cb = progress_cb
+        self._cancel_fn = cancel_fn or (lambda: False)
+        self._num_attempts = int(num_attempts)
+        self._time_budget_sec = time_budget_sec
+        self._skip_final_verify = skip_final_verify
+        self._started_at = time.time()
+
+    def solve(self) -> Any:
+        from n_algorithms.shared.optimal_samples import Problem, solve_problem, verify_solution
+        from solver import SolverProgress, SolverResult
+
+        if self._cancel_fn():
+            return SolverResult(
+                groups=[],
+                num_groups=0,
+                elapsed=time.time() - self._started_at,
+                verified=False,
+                route_module=__name__,
+                solution_source="cancelled",
+                route_case=self._case_label(),
+            )
+
+        if self._progress_cb is not None:
+            self._progress_cb(
+                SolverProgress(
+                    phase="dispatch",
+                    message=f"n15 dedicated solver: {self._case_label()}",
+                    elapsed=time.time() - self._started_at,
+                )
+            )
+
+        problem = Problem(45, self.n, self.k, self.j, self.s)
+        samples = tuple(range(1, self.n + 1))
+        time_limit = self._time_budget_sec if self._time_budget_sec and self._time_budget_sec > 0 else 120.0
+        solved = solve_problem(problem, samples, time_limit=float(time_limit))
+        groups = [list(block) for block in solved.index_blocks]
+        verified = False if self._skip_final_verify else verify_solution(problem, solved.index_blocks)
+        return SolverResult(
+            groups=groups,
+            num_groups=len(groups),
+            elapsed=solved.elapsed_seconds,
+            verified=verified,
+            first_legal_elapsed=solved.elapsed_seconds if groups else None,
+            route_module=__name__,
+            solution_source=solved.strategy,
+            route_case=self._case_label(),
+        )
+
+    def _case_label(self) -> str:
+        return f"L({self.n},{self.k},{self.j},{self.s})"
+
+    def _verify(self, masks: list[int]) -> bool:
+        from n_algorithms.shared.optimal_samples import Problem, verify_solution
+        from n_algorithms.shared.solver_core import mask_to_elements
+
+        blocks = tuple(tuple(mask_to_elements(int(mask))) for mask in masks)
+        return verify_solution(Problem(45, self.n, self.k, self.j, self.s), blocks)

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from n15_solver import solve_n_15
-from n16_solver import solve_n_16
+from n_algorithms.n15.solver import solve_n_15
+from n_algorithms.n16.solver import solve_n_16
 
 
 @dataclass(frozen=True)
