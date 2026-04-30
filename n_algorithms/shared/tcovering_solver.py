@@ -111,6 +111,7 @@ class TCoveringSolver:
         # Adaptive strategy based on instance size
         self._is_large = self.num_cands > 10000 or self.num_targets > 5000
         self._is_huge = self.num_cands > 50000 or self.num_targets > 20000
+        self._is_very_large = self.num_cands > 30000 or self.num_targets > 10000
         
         # Precompute s-subsets for each j-subset
         self._report("init", f"Precomputing s-subset coverage tables ({self.num_targets} targets, {self.num_cands} candidates)...")
@@ -118,7 +119,9 @@ class TCoveringSolver:
         
         self._report("init", f"Ready: {self.num_targets} targets, {self.num_cands} candidates")
         if self._is_huge:
-            self._report("init", "Using huge instance optimizations")
+            self._report("init", "Using huge instance optimizations (top-K=5000)")
+        elif self._is_very_large:
+            self._report("init", "Using very large instance optimizations (top-K=3000, aggressive sampling)")
 
     def _build_coverage_tables(self) -> None:
         """Build optimized coverage tables for fast scoring."""
@@ -135,16 +138,44 @@ class TCoveringSolver:
             self._j_to_s_indices[j_idx] = list(enumerate(s_masks))
             all_s_masks.update(s_masks)
         
-        # Build candidate -> s-subsets coverage table
-        # cand_covers_s[cand_idx] = set of s_masks that this candidate covers
-        self._cand_covers_s = []
-        for cand_idx in range(self.num_cands):
-            cand_mask = int(self.cand_masks[cand_idx])
-            covered_s = set()
-            for s_mask in all_s_masks:
-                if (s_mask & cand_mask) == s_mask:
-                    covered_s.add(s_mask)
-            self._cand_covers_s.append(covered_s)
+        # For very large instances, use sparse representation
+        if self._is_very_large or self._is_huge:
+            # Build candidate -> s-subsets coverage table (sparse)
+            # Only store s-masks that are actually covered
+            self._cand_covers_s = []
+            
+            # Process in batches to save memory
+            batch_size = 1000
+            for batch_start in range(0, self.num_cands, batch_size):
+                batch_end = min(batch_start + batch_size, self.num_cands)
+                
+                for cand_idx in range(batch_start, batch_end):
+                    if self._cancel():
+                        return
+                    
+                    cand_mask = int(self.cand_masks[cand_idx])
+                    covered_s = set()
+                    
+                    # Only check s-masks that could be covered (subset check)
+                    for s_mask in all_s_masks:
+                        if (s_mask & cand_mask) == s_mask:
+                            covered_s.add(s_mask)
+                    
+                    self._cand_covers_s.append(covered_s)
+                
+                # Report progress
+                if batch_end % 5000 == 0:
+                    self._report("init", f"Processed {batch_end}/{self.num_cands} candidates...")
+        else:
+            # Original method for smaller instances
+            self._cand_covers_s = []
+            for cand_idx in range(self.num_cands):
+                cand_mask = int(self.cand_masks[cand_idx])
+                covered_s = set()
+                for s_mask in all_s_masks:
+                    if (s_mask & cand_mask) == s_mask:
+                        covered_s.add(s_mask)
+                self._cand_covers_s.append(covered_s)
         
         # Build s-subset -> j-subsets inverse index
         # s_to_j[s_mask] = list of (j_idx, s_idx_in_j)
@@ -191,6 +222,9 @@ class TCoveringSolver:
         effective_attempts = self._num_attempts
         if self._is_huge:
             effective_attempts = max(1, self._num_attempts // 2)  # Reduce for huge instances
+        elif self._is_very_large:
+            # For very large instances (like n=20), reduce attempts more aggressively
+            effective_attempts = max(1, self._num_attempts // 3)
         elif self._deadline_at:
             # For time-constrained problems, reduce attempts
             effective_attempts = max(2, self._num_attempts // 2)
@@ -264,11 +298,19 @@ class TCoveringSolver:
         j_covered_count = np.zeros(self.num_targets, dtype=np.int32)
         
         iteration = 0
-        log_interval = max(1, self.num_targets // 100)
+        # Adaptive log interval based on instance size
+        if self._is_very_large or self._is_huge:
+            log_interval = max(1, self.num_targets // 50)  # Less frequent logging
+        else:
+            log_interval = max(1, self.num_targets // 100)
         
         # Adaptive top-K for huge instances
-        use_top_k = self._is_huge
-        top_k_size = min(5000, self.num_cands // 10) if use_top_k else self.num_cands
+        use_top_k = self._is_huge or self._is_very_large
+        if self._is_very_large:
+            # More aggressive for very large instances
+            top_k_size = min(3000, self.num_cands // 15) if use_top_k else self.num_cands
+        else:
+            top_k_size = min(5000, self.num_cands // 10) if use_top_k else self.num_cands
         
         while True:
             if self._cancel():
@@ -378,14 +420,28 @@ class TCoveringSolver:
         # Heuristic: prefer candidates that cover elements in unsatisfied j-subsets
         candidates = []
         
+        # For very large instances, sample fewer unsatisfied j-subsets
+        if self._is_very_large or self._is_huge:
+            sample_size = min(50, len(unsatisfied_j))
+        else:
+            sample_size = min(100, len(unsatisfied_j))
+        
         # Get elements that appear in unsatisfied j-subsets
         hot_elements = set()
-        for j_idx in unsatisfied_j[:min(100, len(unsatisfied_j))]:
+        for j_idx in unsatisfied_j[:sample_size]:
             j_mask = int(self.target_masks[j_idx])
             hot_elements.update(mask_to_elements(j_mask))
         
+        # For very large instances, sample candidates instead of checking all
+        if self._is_very_large or self._is_huge:
+            # Random sampling of candidates
+            sample_cands = min(k * 3, self.num_cands)  # Sample 3x the target
+            cand_indices = random.sample(range(self.num_cands), sample_cands)
+        else:
+            cand_indices = range(self.num_cands)
+        
         # Score candidates by how many hot elements they contain
-        for cand_idx in range(self.num_cands):
+        for cand_idx in cand_indices:
             cand_mask = int(self.cand_masks[cand_idx])
             if cand_mask in selected_set:
                 continue
@@ -409,7 +465,12 @@ class TCoveringSolver:
         
         improved = True
         passes = 0
-        max_passes = 3
+        
+        # Adaptive max passes based on instance size
+        if self._is_very_large or self._is_huge:
+            max_passes = 2  # More aggressive for very large instances
+        else:
+            max_passes = 3
         
         while improved and passes < max_passes and not self._cancel():
             improved = False
@@ -419,7 +480,16 @@ class TCoveringSolver:
             if passes > 1:
                 random.shuffle(indices)
             
+            # For very large instances, only try removing a subset of groups
+            if self._is_very_large and len(indices) > 50:
+                # Only try removing the last 30% of groups (likely less critical)
+                indices = indices[-int(len(indices) * 0.3):]
+            
             for i in indices:
+                # Check time budget during local search
+                if self._deadline_at and time.time() >= self._deadline_at:
+                    return solution
+                
                 candidate = solution[:i] + solution[i+1:]
                 
                 if self._fast_verify(candidate):
