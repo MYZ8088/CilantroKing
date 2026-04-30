@@ -15,6 +15,8 @@ from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
 DEFAULT_TIME_BUDGET_SEC = 120.0
+UI_FONT = "Helvetica"
+MONO_FONT = "Menlo"
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
@@ -22,23 +24,35 @@ class CleanModernApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("Optimal Samples Selection System")
-        self.root.geometry("1000x820")
-        self.root.minsize(900, 700)
+        self.root.geometry("1080x820")
+        self.root.minsize(920, 700)
         
-        # Modern color scheme
         self.colors = {
-            'bg': '#f5f7fa',
-            'primary': '#3b82f6',
-            'primary_hover': '#2563eb',
-            'secondary': '#10b981',
-            'danger': '#ef4444',
-            'text': '#1f2937',
-            'text_light': '#6b7280',
+            'bg': '#f7f7f5',
             'card_bg': '#ffffff',
-            'border': '#e5e7eb',
+            'panel': '#fbfbfa',
+            'field_bg': '#f4f4f2',
+            'primary': '#202123',
+            'primary_hover': '#343541',
+            'secondary': '#10a37f',
+            'secondary_hover': '#0e8f70',
+            'danger': '#d92d20',
+            'danger_hover': '#b42318',
+            'warning': '#b7791f',
+            'warning_hover': '#9a6619',
+            'neutral': '#eeeeeb',
+            'neutral_hover': '#dededb',
+            'text': '#202123',
+            'text_light': '#6b7280',
+            'text_subtle': '#9ca3af',
+            'border': '#dededb',
+            'border_strong': '#c9c9c5',
+            'selection': '#e8f5ee',
         }
         
         self.root.configure(bg=self.colors['bg'])
+        self.root.option_add("*Font", f"{UI_FONT} 12")
+        self._configure_ttk_style()
         self._mousewheel_handlers: dict[str, Callable[[int], str | None]] = {}
         self._setup_mousewheel_dispatcher()
         self._main_layout_wide: bool | None = None
@@ -69,20 +83,9 @@ class CleanModernApp:
     
     def _on_window_resize(self, event) -> None:
         """Handle window resize to adjust layout responsively."""
-        # Only respond to root window resize events
         if event.widget != self.root:
             return
-        
-        width = event.width
-        # Threshold for switching between layouts (e.g., 1200px)
-        wide_threshold = 1200
-        
-        should_be_wide = width >= wide_threshold
-        
-        # Only update if layout mode changed
-        if should_be_wide != self._is_wide_layout:
-            self._is_wide_layout = should_be_wide
-            self._update_layout()
+        self._schedule_main_layout_refresh()
     
     def _update_layout(self) -> None:
         """Update the layout based on window width."""
@@ -201,17 +204,30 @@ class CleanModernApp:
         self._main_canvas.pack_forget()
         self._main_scrollbar.pack_forget()
 
-        self._main_canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
-        self._main_scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
+        self._main_canvas.pack(side="left", fill="both", expand=True, padx=(34, 0), pady=(8, 22))
+        self._main_scrollbar.pack(side="right", fill="y", padx=(0, 34), pady=(8, 22))
 
         if wide:
-            self._main_left_col.pack(side="left", fill="both", expand=True, padx=(0, 12))
-            self._main_right_col.pack(side="left", fill="both", expand=True, padx=(12, 0))
+            self._main_left_col.pack(side="left", fill="both", expand=True, padx=(0, 14))
+            self._main_right_col.pack(side="left", fill="both", expand=True, padx=(14, 0))
             self._samples_lbl.config(wraplength=560)
         else:
             self._main_left_col.pack(fill="x")
             self._main_right_col.pack(fill="both", expand=True)
             self._samples_lbl.config(wraplength=850)
+
+    def _configure_ttk_style(self) -> None:
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Solver.Horizontal.TProgressbar",
+            troughcolor=self.colors["field_bg"],
+            background=self.colors["secondary"],
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["secondary"],
+            darkcolor=self.colors["secondary"],
+            thickness=8,
+        )
 
     # ==================================================================
     # Main screen
@@ -221,25 +237,25 @@ class CleanModernApp:
         self._main_frame = tk.Frame(self.root, bg=self.colors['bg'])
 
         # Header
-        header = tk.Frame(self._main_frame, bg=self.colors['bg'], height=100)
-        header.pack(fill="x", padx=30, pady=(20, 10))
+        header = tk.Frame(self._main_frame, bg=self.colors['bg'], height=88)
+        header.pack(fill="x", padx=34, pady=(22, 8))
         header.pack_propagate(False)
         
         tk.Label(
             header,
-            text="🔬 Optimal Samples Selection",
-            font=("Segoe UI", 28, "bold"),
+            text="Optimal Samples Selection",
+            font=(UI_FONT, 27, "bold"),
             bg=self.colors['bg'],
             fg=self.colors['text']
-        ).pack(anchor="w", pady=(15, 0))
+        ).pack(anchor="w", pady=(8, 0))
         
         tk.Label(
             header,
-            text="Advanced covering design solver with GPU acceleration",
-            font=("Segoe UI", 12),
+            text="A focused covering design workspace for sample sets and saved results",
+            font=(UI_FONT, 12),
             bg=self.colors['bg'],
             fg=self.colors['text_light']
-        ).pack(anchor="w", pady=(5, 0))
+        ).pack(anchor="w", pady=(4, 0))
 
         # Scrollable container
         canvas = tk.Canvas(self._main_frame, bg=self.colors['bg'], highlightthickness=0)
@@ -261,8 +277,8 @@ class CleanModernApp:
         canvas.bind("<Configure>", _configure_canvas)
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
-        scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
+        canvas.pack(side="left", fill="both", expand=True, padx=(34, 0), pady=(8, 22))
+        scrollbar.pack(side="right", fill="y", padx=(0, 34), pady=(8, 22))
 
         self._register_mousewheel_handler(
             canvas,
@@ -292,11 +308,11 @@ class CleanModernApp:
         scroll_frame = self._main_left_col
 
         # Parameters Card
-        params_card = self._create_card(scroll_frame, "⚙️ Parameters")
-        params_card.pack(fill="x", pady=(0, 15))
+        params_card = self._create_card(scroll_frame, "Parameters")
+        params_card.pack(fill="x", pady=(0, 14))
 
         params_content = tk.Frame(params_card, bg=self.colors['card_bg'])
-        params_content.pack(fill="x", padx=20, pady=15)
+        params_content.pack(fill="x", padx=20, pady=(8, 18))
 
         # First row
         row1 = tk.Frame(params_content, bg=self.colors['card_bg'])
@@ -318,11 +334,11 @@ class CleanModernApp:
         self._timeout = self._param_entry(row3, "Timeout (sec)", "150", "Max runtime: 30-600s", 0)
 
         # Sample Selection Card
-        sample_card = self._create_card(scroll_frame, "📊 Sample Selection")
-        sample_card.pack(fill="x", pady=(0, 15))
+        sample_card = self._create_card(scroll_frame, "Sample Selection")
+        sample_card.pack(fill="x", pady=(0, 14))
 
         sample_content = tk.Frame(sample_card, bg=self.colors['card_bg'])
-        sample_content.pack(fill="x", padx=20, pady=15)
+        sample_content.pack(fill="x", padx=20, pady=(8, 18))
 
         self._mode = tk.StringVar(value="random")
         
@@ -330,50 +346,72 @@ class CleanModernApp:
         mode_frame.pack(fill="x", pady=(0, 10))
         
         tk.Radiobutton(
-            mode_frame, text="🎲 Random Selection", 
+            mode_frame, text="Random Selection",
             variable=self._mode, value="random",
             command=self._toggle_input,
-            font=("Segoe UI", 13, "bold"),
-            bg=self.colors['card_bg'],
+            font=(UI_FONT, 12, "bold"),
+            bg=self.colors['field_bg'],
             fg=self.colors['text'],
-            selectcolor=self.colors['card_bg'],
-            activebackground=self.colors['card_bg']
-        ).pack(side="left", padx=(0, 30))
+            selectcolor=self.colors['selection'],
+            activebackground=self.colors['selection'],
+            activeforeground=self.colors['text'],
+            indicatoron=False,
+            relief="flat",
+            bd=0,
+            padx=18,
+            pady=9,
+            highlightbackground=self.colors['border'],
+            highlightthickness=1,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
         
         tk.Radiobutton(
-            mode_frame, text="✏️ Manual Input",
+            mode_frame, text="Manual Input",
             variable=self._mode, value="input",
             command=self._toggle_input,
-            font=("Segoe UI", 13, "bold"),
-            bg=self.colors['card_bg'],
+            font=(UI_FONT, 12, "bold"),
+            bg=self.colors['field_bg'],
             fg=self.colors['text'],
-            selectcolor=self.colors['card_bg'],
-            activebackground=self.colors['card_bg']
-        ).pack(side="left")
+            selectcolor=self.colors['selection'],
+            activebackground=self.colors['selection'],
+            activeforeground=self.colors['text'],
+            indicatoron=False,
+            relief="flat",
+            bd=0,
+            padx=18,
+            pady=9,
+            highlightbackground=self.colors['border'],
+            highlightthickness=1,
+        ).pack(side="left", fill="x", expand=True, padx=(6, 0))
 
         self._input_box = tk.Frame(sample_content, bg=self.colors['card_bg'])
         tk.Label(
             self._input_box,
             text="Enter sample numbers (comma-separated):",
-            font=("Segoe UI", 11, "bold"),
+            font=(UI_FONT, 11, "bold"),
             bg=self.colors['card_bg'],
             fg=self.colors['text']
         ).pack(anchor="w", pady=(0, 8))
         
         self._samples_entry = tk.Entry(
             self._input_box,
-            font=("Segoe UI", 13),
-            relief="solid",
-            borderwidth=2
+            font=(UI_FONT, 13),
+            relief="flat",
+            borderwidth=0,
+            bg=self.colors['field_bg'],
+            fg=self.colors['text'],
+            insertbackground=self.colors['text'],
+            highlightbackground=self.colors['border'],
+            highlightcolor=self.colors['secondary'],
+            highlightthickness=1,
         )
         self._samples_entry.pack(fill="x", ipady=10)
 
         self._samples_lbl = tk.Label(
             sample_content,
             text="",
-            font=("Segoe UI", 13, "bold"),
+            font=(UI_FONT, 12, "bold"),
             bg=self.colors['card_bg'],
-            fg=self.colors['primary'],
+            fg=self.colors['secondary'],
             wraplength=850,
             justify="left"
         )
@@ -381,102 +419,91 @@ class CleanModernApp:
 
         # Action Buttons - responsive layout
         btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
-        btn_frame.pack(fill="x", pady=(0, 15))
+        btn_frame.pack(fill="x", pady=(0, 14))
+        for col in range(4):
+            btn_frame.grid_columnconfigure(col, weight=1, uniform="actions")
 
-        # First row
-        btn_row1 = tk.Frame(btn_frame, bg=self.colors['bg'])
-        btn_row1.pack(fill="x", pady=(0, 6))
-        
-        btn_width = 14
-        btn_spacing = 6
-        
         self._exec_btn = self._create_button(
-            btn_row1, "▶ Execute", self._on_execute,
-            bg=self.colors['primary'], width=btn_width
+            btn_frame, "Execute", self._on_execute, variant="primary"
         )
-        self._exec_btn.pack(side="left", padx=(0, btn_spacing))
-        
         self._cancel_btn = self._create_button(
-            btn_row1, "⏹ Cancel", self._on_cancel,
-            bg=self.colors['danger'], width=btn_width, state="disabled"
+            btn_frame, "Cancel", self._on_cancel, variant="danger", state="disabled"
         )
-        self._cancel_btn.pack(side="left", padx=(0, btn_spacing))
-        
         self._store_btn = self._create_button(
-            btn_row1, "💾 Store", self._on_store,
-            bg=self.colors['secondary'], width=btn_width, state="disabled"
+            btn_frame, "Store", self._on_store, variant="secondary", state="disabled"
         )
-        self._store_btn.pack(side="left", padx=(0, btn_spacing))
-        
         self._verify_btn = self._create_button(
-            btn_row1, "✓ Verify", self._on_verify,
-            bg="#f59e0b", width=btn_width, state="disabled"
+            btn_frame, "Verify", self._on_verify, variant="secondary", state="disabled"
         )
-        self._verify_btn.pack(side="left", padx=(0, btn_spacing))
-        
         self._print_btn = self._create_button(
-            btn_row1, "🖨 Print Details", self._on_print,
-            bg=self.colors['secondary'], width=btn_width, state="disabled"
+            btn_frame, "Print Details", self._on_print, variant="neutral", state="disabled"
         )
-        self._print_btn.pack(side="left")
-        
-        # Second row
-        btn_row2 = tk.Frame(btn_frame, bg=self.colors['bg'])
-        btn_row2.pack(fill="x")
-        
         self._clear_btn = self._create_button(
-            btn_row2, "🗑 Clear", self._on_clear,
-            bg="gray40", width=btn_width
+            btn_frame, "Clear", self._on_clear, variant="neutral"
         )
-        self._clear_btn.pack(side="left", padx=(0, btn_spacing))
-        
         self._db_btn = self._create_button(
-            btn_row2, "📁 Database", self._show_db,
-            bg="#6366f1", width=btn_width
+            btn_frame, "Database", self._show_db, variant="neutral"
         )
-        self._db_btn.pack(side="left")
+        for index, button in enumerate(
+            [
+                self._exec_btn,
+                self._cancel_btn,
+                self._store_btn,
+                self._verify_btn,
+                self._print_btn,
+                self._clear_btn,
+                self._db_btn,
+            ]
+        ):
+            button.grid(row=index // 4, column=index % 4, sticky="ew", padx=4, pady=4)
 
         # Progress Card
-        progress_card = self._create_card(scroll_frame, "⏱ Progress")
-        progress_card.pack(fill="x", pady=(0, 15))
+        progress_card = self._create_card(scroll_frame, "Progress")
+        progress_card.pack(fill="x", pady=(0, 14))
 
         progress_content = tk.Frame(progress_card, bg=self.colors['card_bg'])
-        progress_content.pack(fill="x", padx=20, pady=15)
+        progress_content.pack(fill="x", padx=20, pady=(8, 18))
 
         self._prog_var = tk.StringVar(value="Ready to execute")
         tk.Label(
             progress_content,
             textvariable=self._prog_var,
-            font=("Segoe UI", 12, "bold"),
+            font=(UI_FONT, 12, "bold"),
             bg=self.colors['card_bg'],
-            fg=self.colors['primary']
+            fg=self.colors['text']
         ).pack(fill="x", pady=(0, 12))
         
         self._prog_bar = ttk.Progressbar(
             progress_content,
             mode="determinate",
-            length=300
+            length=300,
+            style="Solver.Horizontal.TProgressbar",
         )
         self._prog_bar.pack(fill="x")
         self._prog_bar["value"] = 0
 
         # Results Card - add to right column for wide layout
         results_frame = self._main_right_col
-        results_card = self._create_card(results_frame, "📋 Results")
+        results_card = self._create_card(results_frame, "Results")
         results_card.pack(fill="both", expand=True)
 
         results_content = tk.Frame(results_card, bg=self.colors['card_bg'])
-        results_content.pack(fill="both", expand=True, padx=20, pady=15)
+        results_content.pack(fill="both", expand=True, padx=20, pady=(8, 18))
 
         self._result_text = scrolledtext.ScrolledText(
             results_content,
             height=15,
-            font=("Consolas", 12),
-            bg="#fafafa",
+            font=(MONO_FONT, 12),
+            bg=self.colors['panel'],
             fg=self.colors['text'],
-            relief="solid",
-            borderwidth=1,
-            wrap="none"
+            relief="flat",
+            borderwidth=0,
+            wrap="none",
+            insertbackground=self.colors['text'],
+            selectbackground=self.colors['selection'],
+            highlightbackground=self.colors['border'],
+            highlightcolor=self.colors['secondary'],
+            highlightthickness=1,
         )
         self._result_text.pack(fill="both", expand=True)
         self._register_mousewheel_handler(
@@ -488,9 +515,9 @@ class CleanModernApp:
         tk.Label(
             results_content,
             textvariable=self._file_lbl,
-            font=("Segoe UI", 13, "bold"),
+            font=(UI_FONT, 12, "bold"),
             bg=self.colors['card_bg'],
-            fg=self.colors['primary']
+            fg=self.colors['secondary']
         ).pack(pady=(10, 0))
 
         self.root.after(0, self._refresh_main_layout)
@@ -506,7 +533,7 @@ class CleanModernApp:
             highlightthickness=1
         )
         
-        header = tk.Frame(card, bg=self.colors['card_bg'], height=50)
+        header = tk.Frame(card, bg=self.colors['card_bg'], height=44)
         header.pack(fill="x")
         header.pack_propagate(False)
         
@@ -515,21 +542,21 @@ class CleanModernApp:
             text=title,
             bg=self.colors['card_bg'],
             fg=self.colors['text'],
-            font=("Segoe UI", 14, "bold")
-        ).pack(side="left", padx=20, pady=12, anchor="w")
+            font=(UI_FONT, 13, "bold")
+        ).pack(side="left", padx=20, pady=(12, 8), anchor="w")
         
         return card
 
     def _param_entry(self, parent, label: str, default: str, hint: str, col: int) -> tk.StringVar:
         """Create a modern parameter entry."""
         container = tk.Frame(parent, bg=self.colors['card_bg'])
-        container.grid(row=0, column=col, padx=15, sticky="ew")
+        container.grid(row=0, column=col, padx=8, sticky="ew")
         parent.grid_columnconfigure(col, weight=1)
         
         tk.Label(
             container,
             text=label,
-            font=("Segoe UI", 13, "bold"),
+            font=(UI_FONT, 12, "bold"),
             bg=self.colors['card_bg'],
             fg=self.colors['text'],
             anchor="w"
@@ -538,7 +565,7 @@ class CleanModernApp:
         tk.Label(
             container,
             text=hint,
-            font=("Segoe UI", 10),
+            font=(UI_FONT, 10),
             bg=self.colors['card_bg'],
             fg=self.colors['text_light'],
             anchor="w"
@@ -548,24 +575,46 @@ class CleanModernApp:
         entry = tk.Entry(
             container,
             textvariable=var,
-            font=("Segoe UI", 16, "bold"),
-            relief="solid",
-            borderwidth=2,
-            justify="center"
+            font=(UI_FONT, 15, "bold"),
+            relief="flat",
+            borderwidth=0,
+            justify="center",
+            bg=self.colors['field_bg'],
+            fg=self.colors['text'],
+            insertbackground=self.colors['text'],
+            highlightbackground=self.colors['border'],
+            highlightcolor=self.colors['secondary'],
+            highlightthickness=1,
         )
         entry.pack(fill="x", ipady=10)
         
         return var
 
-    def _create_button(self, parent, text: str, command, bg: str, width: int = 12, height: int = 1, state: str = "normal") -> tk.Button:
+    def _button_colors(self, _variant: str) -> tuple[str, str, str]:
+        return self.colors['neutral'], self.colors['text'], self.colors['neutral_hover']
+
+    def _create_button(
+        self,
+        parent,
+        text: str,
+        command,
+        width: int = 0,
+        height: int = 1,
+        state: str = "normal",
+        variant: str = "neutral",
+    ) -> tk.Button:
         """Create a modern styled button."""
+        background, foreground, hover = self._button_colors(variant)
         btn = tk.Button(
             parent,
             text=text,
             command=command,
-            bg=bg,
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
+            bg=background,
+            fg=foreground,
+            activebackground=hover,
+            activeforeground=foreground,
+            disabledforeground=self.colors['text_subtle'],
+            font=(UI_FONT, 11, "bold"),
             relief="flat",
             borderwidth=0,
             width=width,
@@ -573,16 +622,18 @@ class CleanModernApp:
             cursor="hand2",
             state=state,
             padx=15,
-            pady=8
+            pady=9,
+            highlightbackground=self.colors['border'],
+            highlightthickness=1,
         )
         
         # Hover effect
         def on_enter(e):
             if btn['state'] != 'disabled':
-                btn['bg'] = self._darken_color(bg)
+                btn['bg'] = hover
         
         def on_leave(e):
-            btn['bg'] = bg
+            btn['bg'] = background
         
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
@@ -593,9 +644,9 @@ class CleanModernApp:
         """Show a beautiful custom dialog."""
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        dialog.geometry("500x320")
+        dialog.geometry("500x280")
         dialog.resizable(False, False)
-        dialog.configure(bg="white")
+        dialog.configure(bg=self.colors['card_bg'])
         
         # Center the dialog
         dialog.transient(self.root)
@@ -603,78 +654,47 @@ class CleanModernApp:
         
         # Icon and color based on type
         if icon_type == "success":
-            icon = "✅"
-            color = "#10b981"
-            bg_color = "#d1fae5"
+            color = self.colors['secondary']
+            variant = "secondary"
         else:
-            icon = "❌"
-            color = "#ef4444"
-            bg_color = "#fee2e2"
+            color = self.colors['danger']
+            variant = "danger"
         
-        # Header with colored background
-        header = tk.Frame(dialog, bg=bg_color, height=80)
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        shell = tk.Frame(dialog, bg=self.colors['card_bg'])
+        shell.pack(fill="both", expand=True, padx=24, pady=22)
         
+        tk.Frame(shell, bg=color, width=4).pack(side="left", fill="y", padx=(0, 18))
+
+        main = tk.Frame(shell, bg=self.colors['card_bg'])
+        main.pack(side="left", fill="both", expand=True)
+
         tk.Label(
-            header,
-            text=icon,
-            font=("Segoe UI", 40),
-            bg=bg_color,
-            fg=color
-        ).pack(side="left", padx=30, pady=20)
-        
-        tk.Label(
-            header,
+            main,
             text=title,
-            font=("Segoe UI", 18, "bold"),
-            bg=bg_color,
-            fg=color
-        ).pack(side="left", pady=20)
+            font=(UI_FONT, 18, "bold"),
+            bg=self.colors['card_bg'],
+            fg=self.colors['text']
+        ).pack(anchor="w")
         
         # Message content
-        content = tk.Frame(dialog, bg="white")
-        content.pack(fill="both", expand=True, padx=30, pady=20)
+        content = tk.Frame(main, bg=self.colors['card_bg'])
+        content.pack(fill="both", expand=True, pady=(14, 18))
         
         tk.Label(
             content,
             text=message,
-            font=("Segoe UI", 12),
-            bg="white",
-            fg="#1f2937",
+            font=(UI_FONT, 12),
+            bg=self.colors['card_bg'],
+            fg=self.colors['text'],
             justify="left",
             wraplength=420
         ).pack(anchor="w")
         
         # Button
-        btn_frame = tk.Frame(dialog, bg="white")
-        btn_frame.pack(fill="x", padx=30, pady=(0, 20))
-        
-        ok_btn = tk.Button(
-            btn_frame,
-            text="OK",
-            command=dialog.destroy,
-            bg=color,
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
-            relief="flat",
-            borderwidth=0,
-            width=12,
-            height=1,
-            cursor="hand2",
-            padx=20,
-            pady=10
-        )
+        btn_frame = tk.Frame(main, bg=self.colors['card_bg'])
+        btn_frame.pack(fill="x")
+        ok_btn = self._create_button(btn_frame, "OK", dialog.destroy, variant=variant, width=12)
         ok_btn.pack(side="right")
-        
-        # Hover effect
-        def on_enter(e):
-            ok_btn['bg'] = self._darken_color(color)
-        def on_leave(e):
-            ok_btn['bg'] = color
-        
-        ok_btn.bind("<Enter>", on_enter)
-        ok_btn.bind("<Leave>", on_leave)
         
         # Center dialog on screen
         dialog.update_idletasks()
@@ -688,9 +708,9 @@ class CleanModernApp:
         """Show a beautiful confirmation dialog with Yes/No buttons."""
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        dialog.geometry("500x280")
+        dialog.geometry("500x260")
         dialog.resizable(False, False)
-        dialog.configure(bg="white")
+        dialog.configure(bg=self.colors['card_bg'])
         
         # Center the dialog
         dialog.transient(self.root)
@@ -698,44 +718,39 @@ class CleanModernApp:
         
         result = [False]  # Use list to store result
         
-        # Header with warning color
-        header = tk.Frame(dialog, bg="#fef3c7", height=80)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        
+        shell = tk.Frame(dialog, bg=self.colors['card_bg'])
+        shell.pack(fill="both", expand=True, padx=24, pady=22)
+
+        tk.Frame(shell, bg=self.colors['danger'], width=4).pack(side="left", fill="y", padx=(0, 18))
+
+        main = tk.Frame(shell, bg=self.colors['card_bg'])
+        main.pack(side="left", fill="both", expand=True)
+
         tk.Label(
-            header,
-            text="⚠️",
-            font=("Segoe UI", 40),
-            bg="#fef3c7",
-            fg="#f59e0b"
-        ).pack(side="left", padx=30, pady=20)
-        
-        tk.Label(
-            header,
+            main,
             text=title,
-            font=("Segoe UI", 18, "bold"),
-            bg="#fef3c7",
-            fg="#f59e0b"
-        ).pack(side="left", pady=20)
+            font=(UI_FONT, 18, "bold"),
+            bg=self.colors['card_bg'],
+            fg=self.colors['text']
+        ).pack(anchor="w")
         
         # Message content
-        content = tk.Frame(dialog, bg="white")
-        content.pack(fill="both", expand=True, padx=30, pady=20)
+        content = tk.Frame(main, bg=self.colors['card_bg'])
+        content.pack(fill="both", expand=True, pady=(14, 18))
         
         tk.Label(
             content,
             text=message,
-            font=("Segoe UI", 12),
-            bg="white",
-            fg="#1f2937",
+            font=(UI_FONT, 12),
+            bg=self.colors['card_bg'],
+            fg=self.colors['text'],
             justify="left",
             wraplength=420
         ).pack(anchor="w")
         
         # Buttons
-        btn_frame = tk.Frame(dialog, bg="white")
-        btn_frame.pack(fill="x", padx=30, pady=(0, 20))
+        btn_frame = tk.Frame(main, bg=self.colors['card_bg'])
+        btn_frame.pack(fill="x")
         
         def on_yes():
             result[0] = True
@@ -745,56 +760,13 @@ class CleanModernApp:
             result[0] = False
             dialog.destroy()
         
-        # No button (gray)
-        no_btn = tk.Button(
-            btn_frame,
-            text="Cancel",
-            command=on_no,
-            bg="gray40",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
-            relief="flat",
-            borderwidth=0,
-            width=10,
-            height=1,
-            cursor="hand2",
-            padx=15,
-            pady=10
-        )
+        # No button
+        no_btn = self._create_button(btn_frame, "Cancel", on_no, variant="neutral", width=12)
         no_btn.pack(side="right", padx=(10, 0))
         
-        # Yes button (red for delete)
-        yes_btn = tk.Button(
-            btn_frame,
-            text="Confirm Delete",
-            command=on_yes,
-            bg="#ef4444",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
-            relief="flat",
-            borderwidth=0,
-            width=10,
-            height=1,
-            cursor="hand2",
-            padx=15,
-            pady=10
-        )
+        # Yes button
+        yes_btn = self._create_button(btn_frame, "Confirm Delete", on_yes, variant="danger", width=14)
         yes_btn.pack(side="right")
-        
-        # Hover effects
-        def yes_enter(e):
-            yes_btn['bg'] = "#dc2626"
-        def yes_leave(e):
-            yes_btn['bg'] = "#ef4444"
-        def no_enter(e):
-            no_btn['bg'] = "gray30"
-        def no_leave(e):
-            no_btn['bg'] = "gray40"
-        
-        yes_btn.bind("<Enter>", yes_enter)
-        yes_btn.bind("<Leave>", yes_leave)
-        no_btn.bind("<Enter>", no_enter)
-        no_btn.bind("<Leave>", no_leave)
         
         # Center dialog on screen
         dialog.update_idletasks()
@@ -828,7 +800,7 @@ class CleanModernApp:
         except ValueError as exc:
             self._show_custom_dialog(
                 "Invalid Parameters",
-                f"⚠️ Parameter validation failed:\n\n{str(exc)}\n\nPlease check your input and try again.",
+                f"Parameter validation failed:\n\n{str(exc)}\n\nPlease check your input and try again.",
                 "error"
             )
             return
@@ -878,7 +850,7 @@ class CleanModernApp:
             self._current_result.elapsed,
             self._current_result.first_legal_elapsed,
         )
-        self._file_lbl.set(f"📄 Stored: {fn}")
+        self._file_lbl.set(f"Stored: {fn}")
         
         # Build message with solution found time if available
         time_info = f"Total Time: {self._current_result.elapsed:.2f}s"
@@ -981,27 +953,27 @@ class CleanModernApp:
         if is_verified:
             lines = [
                 "",
-                "  " + "✅" * 35,
+                "  " + "=" * 35,
                 "",
-                "            🎊 SOLUTION VERIFIED SUCCESSFULLY 🎊",
+                "            SOLUTION VERIFIED SUCCESSFULLY",
                 "",
-                "  " + "✅" * 35,
+                "  " + "=" * 35,
                 "",
                 "",
-                "  📊 Summary:",
+                "  Summary:",
                 "  " + "─" * 66,
                 f"    Groups Found      : {self._current_result.num_groups}",
                 f"    Time Elapsed      : {self._current_result.elapsed:.2f}s",
                 f"    Run Number        : {self._ordinal(current_run)}",
-                f"    Verification      : ✅ PASSED - All targets covered!",
+                f"    Verification      : PASSED - All targets covered",
                 "  " + "─" * 66,
                 "",
                 "",
-                "  🎯 Next Steps:",
+                "  Next Steps:",
                 "",
-                "    ✓  Solution is valid and ready to use",
-                "    📋 Click '🖨 Print Details' to see all groups",
-                "    💾 Click '💾 Store' to save to database",
+                "    1. Solution is valid and ready to use",
+                "    2. Click 'Print Details' to see all groups",
+                "    3. Click 'Store' to save to database",
                 "",
                 "",
             ]
@@ -1012,27 +984,27 @@ class CleanModernApp:
                 "The solution is valid and ready to use.",
                 "success"
             )
-            self._prog_var.set(f"✅ Verified: {self._current_result.num_groups} groups (Valid solution)")
+            self._prog_var.set(f"Verified: {self._current_result.num_groups} groups (valid solution)")
         else:
             lines = [
                 "",
-                "  " + "❌" * 35,
+                "  " + "=" * 35,
                 "",
-                "            ⚠️  VERIFICATION FAILED  ⚠️",
+                "            VERIFICATION FAILED",
                 "",
-                "  " + "❌" * 35,
+                "  " + "=" * 35,
                 "",
                 "",
-                "  📊 Summary:",
+                "  Summary:",
                 "  " + "─" * 66,
                 f"    Groups Found      : {self._current_result.num_groups}",
                 f"    Time Elapsed      : {self._current_result.elapsed:.2f}s",
                 f"    Run Number        : {self._ordinal(current_run)}",
-                f"    Verification      : ❌ FAILED - Some targets not covered",
+                f"    Verification      : FAILED - Some targets not covered",
                 "  " + "─" * 66,
                 "",
                 "",
-                "  ⚠️  Warning:",
+                "  Warning:",
                 "",
                 "    The solution does not cover all required targets.",
                 "    This may indicate an algorithm issue.",
@@ -1046,7 +1018,7 @@ class CleanModernApp:
                 "The solution may be incomplete.",
                 "error"
             )
-            self._prog_var.set(f"❌ Verification failed: {self._current_result.num_groups} groups")
+            self._prog_var.set(f"Verification failed: {self._current_result.num_groups} groups")
         
         # Refresh display
         self._result_text.delete("1.0", "end")
@@ -1054,7 +1026,7 @@ class CleanModernApp:
         
         # Update file label with verification status
         filename = f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-{current_run}-{self._current_result.num_groups}"
-        status = "✅" if is_verified else "❌"
+        status = "Verified" if is_verified else "Failed"
         self._file_lbl.set(f"{status} {filename}")
 
     def _on_clear(self) -> None:
@@ -1148,7 +1120,7 @@ class CleanModernApp:
         if not raw:
             self._show_custom_dialog(
                 "Input Required",
-                "⚠️ Please enter sample numbers.\n\nYou need to provide comma-separated numbers.",
+                "Please enter sample numbers.\n\nYou need to provide comma-separated numbers.",
                 "error"
             )
             return None
@@ -1157,28 +1129,28 @@ class CleanModernApp:
         except ValueError:
             self._show_custom_dialog(
                 "Invalid Input",
-                "⚠️ All values must be integers.\n\nPlease check your input format.",
+                "All values must be integers.\n\nPlease check your input format.",
                 "error"
             )
             return None
         if len(nums) != n:
             self._show_custom_dialog(
                 "Wrong Count",
-                f"⚠️ Expected {n} numbers, but got {len(nums)}.\n\nPlease provide exactly {n} sample numbers.",
+                f"Expected {n} numbers, but got {len(nums)}.\n\nPlease provide exactly {n} sample numbers.",
                 "error"
             )
             return None
         if len(set(nums)) != n:
             self._show_custom_dialog(
                 "Duplicate Values",
-                "⚠️ Duplicate values found.\n\nEach sample number must be unique.",
+                "Duplicate values found.\n\nEach sample number must be unique.",
                 "error"
             )
             return None
         if any(x < 1 or x > m for x in nums):
             self._show_custom_dialog(
                 "Out of Range",
-                f"⚠️ All values must be in range 1 to {m}.\n\nPlease check your sample numbers.",
+                f"All values must be in range 1 to {m}.\n\nPlease check your sample numbers.",
                 "error"
             )
             return None
@@ -1328,25 +1300,25 @@ class CleanModernApp:
         self._db_frame = tk.Frame(self.root, bg=self.colors['bg'])
 
         # Header
-        header = tk.Frame(self._db_frame, bg=self.colors['bg'], height=100)
-        header.pack(fill="x", padx=30, pady=(20, 10))
+        header = tk.Frame(self._db_frame, bg=self.colors['bg'], height=88)
+        header.pack(fill="x", padx=34, pady=(22, 8))
         header.pack_propagate(False)
         
         tk.Label(
             header,
-            text="📁 Database Browser",
-            font=("Segoe UI", 28, "bold"),
+            text="Database Browser",
+            font=(UI_FONT, 27, "bold"),
             bg=self.colors['bg'],
             fg=self.colors['text']
-        ).pack(anchor="w", pady=(15, 0))
+        ).pack(anchor="w", pady=(8, 0))
         
         tk.Label(
             header,
             text="View and manage saved results",
-            font=("Segoe UI", 12),
+            font=(UI_FONT, 12),
             bg=self.colors['bg'],
             fg=self.colors['text_light']
-        ).pack(anchor="w", pady=(5, 0))
+        ).pack(anchor="w", pady=(4, 0))
 
         # Scrollable container
         canvas = tk.Canvas(self._db_frame, bg=self.colors['bg'], highlightthickness=0)
@@ -1366,8 +1338,8 @@ class CleanModernApp:
         canvas.bind("<Configure>", _configure_canvas)
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(10, 20))
-        scrollbar.pack(side="right", fill="y", padx=(0, 30), pady=(10, 20))
+        canvas.pack(side="left", fill="both", expand=True, padx=(34, 0), pady=(8, 22))
+        scrollbar.pack(side="right", fill="y", padx=(0, 34), pady=(8, 22))
 
         self._register_mousewheel_handler(
             canvas,
@@ -1380,41 +1352,32 @@ class CleanModernApp:
 
         # Action Buttons
         btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
-        btn_frame.pack(fill="x", pady=(0, 15))
+        btn_frame.pack(fill="x", pady=(0, 14))
+        for col in range(3):
+            btn_frame.grid_columnconfigure(col, weight=1, uniform="db-actions")
 
-        left_btns = tk.Frame(btn_frame, bg=self.colors['bg'])
-        left_btns.pack(side="left")
-
-        self._create_button(
-            left_btns, "👁 Display", self._db_display,
-            bg=self.colors['primary'], width=15
-        ).pack(side="left", padx=(0, 10))
-        
-        self._create_button(
-            left_btns, "🗑 Delete", self._db_delete,
-            bg=self.colors['danger'], width=15
-        ).pack(side="left")
-
-        right_btns = tk.Frame(btn_frame, bg=self.colors['bg'])
-        right_btns.pack(side="right")
-        
-        self._create_button(
-            right_btns, "← Back", self._show_main,
-            bg="gray40", width=15
-        ).pack()
+        db_buttons = [
+            self._create_button(btn_frame, "Display", self._db_display, variant="primary"),
+            self._create_button(btn_frame, "Delete", self._db_delete, variant="danger"),
+            self._create_button(btn_frame, "Back", self._show_main, variant="neutral"),
+        ]
+        for index, button in enumerate(db_buttons):
+            button.grid(row=0, column=index, sticky="ew", padx=4, pady=4)
 
         # Saved Results Card
-        list_card = self._create_card(scroll_frame, "💾 Saved Results")
-        list_card.pack(fill="x", pady=(0, 15))
+        list_card = self._create_card(scroll_frame, "Saved Results")
+        list_card.pack(fill="x", pady=(0, 14))
 
         list_content = tk.Frame(list_card, bg=self.colors['card_bg'])
-        list_content.pack(fill="x", padx=20, pady=15)
+        list_content.pack(fill="x", padx=20, pady=(8, 18))
 
         list_frame = tk.Frame(
             list_content,
-            bg="#fafafa",
-            relief="solid",
-            borderwidth=1
+            bg=self.colors['panel'],
+            relief="flat",
+            borderwidth=0,
+            highlightbackground=self.colors['border'],
+            highlightthickness=1,
         )
         list_frame.pack(fill="x")
 
@@ -1425,11 +1388,11 @@ class CleanModernApp:
             list_frame,
             height=10,
             selectmode=tk.SINGLE,
-            font=("Consolas", 14, "bold"),
-            bg="#fafafa",
+            font=(MONO_FONT, 13, "bold"),
+            bg=self.colors['panel'],
             fg=self.colors['text'],
-            selectbackground=self.colors['primary'],
-            selectforeground="white",
+            selectbackground=self.colors['selection'],
+            selectforeground=self.colors['text'],
             relief="flat",
             borderwidth=0,
             highlightthickness=0,
@@ -1445,21 +1408,26 @@ class CleanModernApp:
         self._db_ids: list[int] = []
 
         # Detail View Card
-        detail_card = self._create_card(scroll_frame, "📊 Group Details")
+        detail_card = self._create_card(scroll_frame, "Group Details")
         detail_card.pack(fill="both", expand=True)
 
         detail_content = tk.Frame(detail_card, bg=self.colors['card_bg'])
-        detail_content.pack(fill="both", expand=True, padx=20, pady=15)
+        detail_content.pack(fill="both", expand=True, padx=20, pady=(8, 18))
 
         self._db_text = scrolledtext.ScrolledText(
             detail_content,
             height=18,
-            font=("Consolas", 12),
-            bg="#fafafa",
+            font=(MONO_FONT, 12),
+            bg=self.colors['panel'],
             fg=self.colors['text'],
-            relief="solid",
-            borderwidth=1,
-            wrap="none"
+            relief="flat",
+            borderwidth=0,
+            wrap="none",
+            insertbackground=self.colors['text'],
+            selectbackground=self.colors['selection'],
+            highlightbackground=self.colors['border'],
+            highlightcolor=self.colors['secondary'],
+            highlightthickness=1,
         )
         self._db_text.pack(fill="both", expand=True)
         self._register_mousewheel_handler(
@@ -1479,7 +1447,7 @@ class CleanModernApp:
         if not sel:
             self._show_custom_dialog(
                 "No Selection",
-                "⚠️ Please select a result first.\n\nClick on a result in the list to select it.",
+                "Please select a result first.\n\nClick on a result in the list to select it.",
                 "error"
             )
             return None
@@ -1542,7 +1510,7 @@ class CleanModernApp:
             return
         if self._show_confirm_dialog(
             "Confirm Delete", 
-            "⚠️ Are you sure you want to delete this result?\n\nThis action cannot be undone."
+            "Are you sure you want to delete this result?\n\nThis action cannot be undone."
         ):
             self.db.delete(rid)
             self._refresh_db_list()

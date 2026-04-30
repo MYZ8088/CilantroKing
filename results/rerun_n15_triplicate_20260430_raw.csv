@@ -1,0 +1,10 @@
+case_order,case_id,n,k,j,s,t,baseline_blocks,actual_blocks,ratio_to_baseline,error_pct,solve_elapsed_sec,verify_elapsed_sec,elapsed_sec,verified,verify_method,route_module,solution_source,error,verify_error
+280,L_15_5_5_4,15,5,5,4,1,95,118,1.242105,24.210526,113.793047,0.017108,113.810227,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+280,L_15_5_5_4,15,5,5,4,1,95,117,1.231579,23.157895,113.890099,0.015032,113.9052,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+290,L_15_6_6_5,15,6,6,5,1,142,187,1.316901,31.690141,120.014734,0.047565,120.062354,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+290,L_15_6_6_5,15,6,6,5,1,142,187,1.316901,31.690141,120.063961,0.051725,120.115742,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+305,L_15_7_7_6,15,7,7,6,1,180,238,1.322222,32.222222,120.359579,0.091938,120.451664,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+280,L_15_5_5_4,15,5,5,4,1,95,116,1.221053,22.105263,113.979644,0.016193,113.99588,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+305,L_15_7_7_6,15,7,7,6,1,180,237,1.316667,31.666667,116.666743,0.076115,116.742925,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+305,L_15_7_7_6,15,7,7,6,1,180,237,1.316667,31.666667,115.719049,0.075151,115.794256,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+290,L_15_6_6_5,15,6,6,5,1,142,185,1.302817,30.28169,120.042119,0.039092,120.081273,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
