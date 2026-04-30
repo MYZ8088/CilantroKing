@@ -62,8 +62,14 @@ class TCoveringSolver:
         self._time_budget_sec = (
             float(time_budget_sec) if time_budget_sec is not None and time_budget_sec > 0 else None
         )
+        # Add safety margin for t-covering
+        self._time_budget_margin_sec = 0.0
+        if self._time_budget_sec is not None:
+            self._time_budget_margin_sec = 3.0 if n >= 16 else 1.5
         self._deadline_at = (
-            self._t0 + self._time_budget_sec if self._time_budget_sec is not None else None
+            self._t0 + max(0.0, self._time_budget_sec - self._time_budget_margin_sec)
+            if self._time_budget_sec is not None
+            else None
         )
         self._first_legal_elapsed: float | None = None
 
@@ -175,19 +181,27 @@ class TCoveringSolver:
         self._cb(prog)
 
     def solve(self) -> SolverResult:
-        """Solve the t-covering problem using greedy + local search + SA."""
+        """Solve the t-covering problem using greedy + fast local search."""
         self._report("start", f"Starting t-covering solver (t={self.t})...")
         
         best_solution = None
         best_size = float('inf')
         
-        # Adaptive attempts based on instance size
+        # Adaptive attempts based on instance size and time budget
         effective_attempts = self._num_attempts
         if self._is_huge:
-            effective_attempts = max(2, self._num_attempts // 2)  # Reduce for huge instances
+            effective_attempts = max(1, self._num_attempts // 2)  # Reduce for huge instances
+        elif self._deadline_at:
+            # For time-constrained problems, reduce attempts
+            effective_attempts = max(2, self._num_attempts // 2)
         
         for attempt in range(effective_attempts):
             if self._cancel():
+                break
+            
+            # Check time budget
+            if self._deadline_at and time.time() >= self._deadline_at:
+                self._report("timeout", "Time budget exhausted")
                 break
             
             self._report("attempt", f"Attempt {attempt + 1}/{effective_attempts}")
@@ -197,12 +211,8 @@ class TCoveringSolver:
             solution = self._greedy_solve(randomize=use_randomization)
             
             if solution:
-                # Apply local search to improve
+                # Apply fast local search to improve
                 solution = self._local_search(solution)
-                
-                # Apply simulated annealing for medium/large solutions
-                if len(solution) > 10 and not self._is_huge:
-                    solution = self._simulated_annealing(solution)
                 
                 if len(solution) < best_size:
                     best_solution = solution
