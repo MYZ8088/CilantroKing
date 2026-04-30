@@ -1,0 +1,8 @@
+case_order,case_id,n,k,j,s,t,baseline_blocks,actual_blocks,ratio_to_baseline,error_pct,solve_elapsed_sec,verify_elapsed_sec,elapsed_sec,verified,verify_method,route_module,solution_source,error,verify_error
+187,L_12_6_5_5,12,6,5,5,1,132,132,1.0,0.0,19.18231,0.016592,19.199132,True,CoveringDesignSolver._verify,n_algorithms.n12.solver,search,,
+233,L_13_7_5_5,13,7,5,5,1,78,78,1.0,0.0,115.603479,0.016988,115.6208,True,CoveringDesignSolver._verify,n_algorithms.n13.solver,search,,
+271,L_14_7_7_6,14,7,7,6,1,100,100,1.0,0.0,118.194464,0.129513,118.32513,True,CoveringDesignSolver._verify,n_algorithms.n14.solver,search,,
+252,L_14_6_4_4,14,6,4,4,1,80,91,1.1375,13.75,118.608921,0.017527,118.626737,True,CoveringDesignSolver._verify,n_algorithms.n14.solver,search,,
+280,L_15_5_5_4,15,5,5,4,1,95,121,1.273684,27.368421,120.010254,0.014503,120.024801,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+290,L_15_6_6_5,15,6,6,5,1,142,189,1.330986,33.098592,116.892524,0.039196,116.931812,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,
+305,L_15_7_7_6,15,7,7,6,1,180,237,1.316667,31.666667,120.035101,0.073816,120.108974,True,CoveringDesignSolver._verify,n_algorithms.n15.solver,n=15:bitmask-random-greedy-lns-ilp,,

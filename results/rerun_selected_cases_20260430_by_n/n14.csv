@@ -1,0 +1,3 @@
+case_order,case_id,n,k,j,s,t,baseline_blocks,actual_blocks,ratio_to_baseline,error_pct,solve_elapsed_sec,verify_elapsed_sec,elapsed_sec,verified,verify_method,route_module,solution_source,error,verify_error
+271,L_14_7_7_6,14,7,7,6,1,100,100,1.0,0.0,118.194464,0.129513,118.32513,True,CoveringDesignSolver._verify,n_algorithms.n14.solver,search,,
+252,L_14_6_4_4,14,6,4,4,1,80,91,1.1375,13.75,118.608921,0.017527,118.626737,True,CoveringDesignSolver._verify,n_algorithms.n14.solver,search,,

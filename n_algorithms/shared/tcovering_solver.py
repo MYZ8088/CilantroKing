@@ -15,7 +15,6 @@ Optimizations:
 
 from __future__ import annotations
 
-import math
 import random
 import time
 from itertools import combinations
@@ -49,20 +48,21 @@ class TCoveringSolver:
         time_budget_sec: float | None = None,
     ) -> None:
         self._t0 = time.time()
-        
+
         self.n = n
         self.k = k
         self.j = j
         self.s = s
         self.t = t
-        
+
         self._cb = progress_cb
         self._cancel = cancel_fn or (lambda: False)
         self._num_attempts = max(1, num_attempts)
         self._time_budget_sec = (
-            float(time_budget_sec) if time_budget_sec is not None and time_budget_sec > 0 else None
+            float(time_budget_sec)
+            if time_budget_sec is not None and time_budget_sec > 0
+            else None
         )
-        # Add safety margin for t-covering
         self._time_budget_margin_sec = 0.0
         if self._time_budget_sec is not None:
             self._time_budget_margin_sec = 3.0 if n >= 16 else 1.5
@@ -73,7 +73,6 @@ class TCoveringSolver:
         )
         self._first_legal_elapsed: float | None = None
 
-        # Validation
         if not 7 <= n <= 25:
             raise ValueError(f"n must be 7-25, got {n}")
         if not 4 <= k <= 7:
@@ -84,19 +83,17 @@ class TCoveringSolver:
             raise ValueError(f"Need s<=j<=k, got s={s} j={j} k={k}")
         if n < k:
             raise ValueError(f"Need n>=k, got n={n} k={k}")
-        
+
         max_t = comb(j, s)
         if not 2 <= t <= max_t:
             raise ValueError(f"t must be between 2 and C({j},{s})={max_t}, got {t}")
 
-        # Precompute all j-subsets (targets)
         elems = list(range(n))
         self.target_masks = np.array(
             [elements_to_mask(c) for c in combinations(elems, j)],
             dtype=np.uint32,
         )
-        
-        # Precompute all k-subsets (candidates)
+
         if j == k:
             self.cand_masks = self.target_masks.copy()
         else:
@@ -104,31 +101,34 @@ class TCoveringSolver:
                 [elements_to_mask(c) for c in combinations(elems, k)],
                 dtype=np.uint32,
             )
-        
+
         self.num_targets = len(self.target_masks)
         self.num_cands = len(self.cand_masks)
-        
-        # Adaptive strategy based on instance size
+
         self._is_large = self.num_cands > 10000 or self.num_targets > 5000
         self._is_huge = self.num_cands > 50000 or self.num_targets > 20000
-        self._is_very_large = self.num_cands > 30000 or self.num_targets > 10000
-        
-        # Precompute s-subsets for each j-subset
-        self._report("init", f"Precomputing s-subset coverage tables ({self.num_targets} targets, {self.num_cands} candidates)...")
+
+        self._cand_index_map = {
+            int(mask): idx for idx, mask in enumerate(self.cand_masks)
+        }
+
+        self._report(
+            "init",
+            f"Precomputing s-subset coverage tables ({self.num_targets} targets, {self.num_cands} candidates)...",
+        )
         self._build_coverage_tables()
-        
-        self._report("init", f"Ready: {self.num_targets} targets, {self.num_cands} candidates")
+
+        self._report(
+            "init", f"Ready: {self.num_targets} targets, {self.num_cands} candidates"
+        )
         if self._is_huge:
-            self._report("init", "Using huge instance optimizations (top-K=5000)")
-        elif self._is_very_large:
-            self._report("init", "Using very large instance optimizations (top-K=3000, aggressive sampling)")
+            self._report("init", "Using huge instance optimizations")
 
     def _build_coverage_tables(self) -> None:
         """Build optimized coverage tables for fast scoring."""
-        # For each j-subset, store its s-subsets
         self._s_subsets_per_j = {}
-        self._j_to_s_indices = {}  # j_idx -> list of (s_idx, s_mask)
-        
+        self._j_to_s_indices = {}
+
         all_s_masks = set()
         for j_idx in range(self.num_targets):
             j_mask = int(self.target_masks[j_idx])
@@ -137,48 +137,16 @@ class TCoveringSolver:
             self._s_subsets_per_j[j_mask] = s_masks
             self._j_to_s_indices[j_idx] = list(enumerate(s_masks))
             all_s_masks.update(s_masks)
-        
-        # For very large instances, use sparse representation
-        if self._is_very_large or self._is_huge:
-            # Build candidate -> s-subsets coverage table (sparse)
-            # Only store s-masks that are actually covered
-            self._cand_covers_s = []
-            
-            # Process in batches to save memory
-            batch_size = 1000
-            for batch_start in range(0, self.num_cands, batch_size):
-                batch_end = min(batch_start + batch_size, self.num_cands)
-                
-                for cand_idx in range(batch_start, batch_end):
-                    if self._cancel():
-                        return
-                    
-                    cand_mask = int(self.cand_masks[cand_idx])
-                    covered_s = set()
-                    
-                    # Only check s-masks that could be covered (subset check)
-                    for s_mask in all_s_masks:
-                        if (s_mask & cand_mask) == s_mask:
-                            covered_s.add(s_mask)
-                    
-                    self._cand_covers_s.append(covered_s)
-                
-                # Report progress
-                if batch_end % 5000 == 0:
-                    self._report("init", f"Processed {batch_end}/{self.num_cands} candidates...")
-        else:
-            # Original method for smaller instances
-            self._cand_covers_s = []
-            for cand_idx in range(self.num_cands):
-                cand_mask = int(self.cand_masks[cand_idx])
-                covered_s = set()
-                for s_mask in all_s_masks:
-                    if (s_mask & cand_mask) == s_mask:
-                        covered_s.add(s_mask)
-                self._cand_covers_s.append(covered_s)
-        
-        # Build s-subset -> j-subsets inverse index
-        # s_to_j[s_mask] = list of (j_idx, s_idx_in_j)
+
+        self._cand_covers_s = []
+        for cand_idx in range(self.num_cands):
+            cand_mask = int(self.cand_masks[cand_idx])
+            covered_s = set()
+            for s_mask in all_s_masks:
+                if (s_mask & cand_mask) == s_mask:
+                    covered_s.add(s_mask)
+            self._cand_covers_s.append(covered_s)
+
         self._s_to_j = {}
         for j_idx in range(self.num_targets):
             j_mask = int(self.target_masks[j_idx])
@@ -212,57 +180,48 @@ class TCoveringSolver:
         self._cb(prog)
 
     def solve(self) -> SolverResult:
-        """Solve the t-covering problem using greedy + fast local search."""
+        """Solve the t-covering problem using greedy + local search."""
         self._report("start", f"Starting t-covering solver (t={self.t})...")
-        
+
         best_solution = None
-        best_size = float('inf')
-        
-        # Adaptive attempts based on instance size and time budget
+        best_size = float("inf")
+
         effective_attempts = self._num_attempts
         if self._is_huge:
-            effective_attempts = max(1, self._num_attempts // 2)  # Reduce for huge instances
-        elif self._is_very_large:
-            # For very large instances (like n=20), reduce attempts more aggressively
-            effective_attempts = max(1, self._num_attempts // 3)
+            effective_attempts = max(1, self._num_attempts // 2)
         elif self._deadline_at:
-            # For time-constrained problems, reduce attempts
             effective_attempts = max(2, self._num_attempts // 2)
-        
+
         for attempt in range(effective_attempts):
             if self._cancel():
                 break
-            
-            # Check time budget
+
             if self._deadline_at and time.time() >= self._deadline_at:
                 self._report("timeout", "Time budget exhausted")
                 break
-            
+
             self._report("attempt", f"Attempt {attempt + 1}/{effective_attempts}")
-            
-            # Greedy construction with randomization
+
             use_randomization = attempt > 0
             solution = self._greedy_solve(randomize=use_randomization)
-            
+
             if solution:
-                # Apply fast local search to improve
-                solution = self._local_search(solution)
-                
+                solution = self._fast_local_search(solution)
+
                 if len(solution) < best_size:
                     best_solution = solution
                     best_size = len(solution)
-                    
+
                     if self._first_legal_elapsed is None:
                         self._first_legal_elapsed = time.time() - self._t0
-                    
+
                     self._report(
                         "improve",
                         f"Found solution with {best_size} groups",
                         sol_size=best_size,
                     )
-        
+
         if best_solution is None:
-            # Return empty solution if no solution found
             elapsed = time.time() - self._t0
             return SolverResult(
                 groups=[],
@@ -271,18 +230,15 @@ class TCoveringSolver:
                 verified=False,
                 first_legal_elapsed=None,
             )
-        
-        # Convert masks to element lists
+
         groups = [sorted(mask_to_elements(m)) for m in best_solution]
         elapsed = time.time() - self._t0
-        
-        # Skip verification by default
-        
+
         return SolverResult(
             groups=groups,
             num_groups=len(groups),
             elapsed=elapsed,
-            verified=False,  # Skip verification by default
+            verified=False,
             first_legal_elapsed=self._first_legal_elapsed,
         )
 
@@ -290,39 +246,25 @@ class TCoveringSolver:
         """Optimized greedy algorithm with adaptive top-K for large instances."""
         selected = []
         selected_set = set()
-        
-        # Track which s-subsets are covered
+
         covered_s_masks = set()
-        
-        # Track coverage count for each j-subset
         j_covered_count = np.zeros(self.num_targets, dtype=np.int32)
-        
+
         iteration = 0
-        # Adaptive log interval based on instance size
-        if self._is_very_large or self._is_huge:
-            log_interval = max(1, self.num_targets // 50)  # Less frequent logging
-        else:
-            log_interval = max(1, self.num_targets // 100)
-        
-        # Adaptive top-K for huge instances
-        use_top_k = self._is_huge or self._is_very_large
-        if self._is_very_large:
-            # More aggressive for very large instances
-            top_k_size = min(3000, self.num_cands // 15) if use_top_k else self.num_cands
-        else:
-            top_k_size = min(5000, self.num_cands // 10) if use_top_k else self.num_cands
-        
+        log_interval = max(1, self.num_targets // 100)
+
+        use_top_k = self._is_huge
+        top_k_size = min(5000, self.num_cands // 10) if use_top_k else self.num_cands
+
         while True:
             if self._cancel():
                 return None
-            
-            # Check deadline
+
             if self._deadline_at and time.time() >= self._deadline_at:
                 return selected if selected else None
-            
-            # Find unsatisfied j-subsets
+
             unsatisfied_j = np.where(j_covered_count < self.t)[0]
-            
+
             if len(unsatisfied_j) == 0:
                 self._report(
                     "complete",
@@ -330,63 +272,58 @@ class TCoveringSolver:
                     sol_size=len(selected),
                 )
                 return selected
-            
-            # Fast scoring with top-K heuristic for large instances
+
             best_cand_idx = None
             best_score = -1
             candidate_scores = []
-            
-            # Sample candidates for huge instances
+
             if use_top_k and iteration > 0:
-                # Focus on high-potential candidates
-                cand_indices = self._sample_candidates(selected_set, unsatisfied_j, top_k_size)
+                cand_indices = self._sample_candidates(
+                    selected_set, unsatisfied_j, top_k_size
+                )
             else:
                 cand_indices = range(self.num_cands)
-            
+
             for cand_idx in cand_indices:
                 cand_mask = int(self.cand_masks[cand_idx])
-                
+
                 if cand_mask in selected_set:
                     continue
-                
-                # Fast score calculation
-                score = self._score_candidate(cand_idx, covered_s_masks, j_covered_count)
-                
+
+                score = self._score_candidate(
+                    cand_idx, covered_s_masks, j_covered_count
+                )
+
                 if score > 0:
                     candidate_scores.append((cand_idx, score))
                     if score > best_score:
                         best_score = score
                         best_cand_idx = cand_idx
-            
+
             if not candidate_scores:
                 return None
-            
-            # Select candidate with adaptive strategy
+
             if randomize and len(candidate_scores) > 3:
-                # RCL strategy
                 candidate_scores.sort(key=lambda x: x[1], reverse=True)
                 threshold = max(3, len(candidate_scores) // 5)
                 min_score = max(1, int(best_score * 0.8))
                 rcl = [c for c in candidate_scores[:threshold] if c[1] >= min_score]
                 best_cand_idx = random.choice(rcl)[0]
-            
-            # Add selected candidate
+
             best_mask = int(self.cand_masks[best_cand_idx])
             selected.append(best_mask)
             selected_set.add(best_mask)
-            
-            # Incremental update
+
             newly_covered = self._cand_covers_s[best_cand_idx] - covered_s_masks
             covered_s_masks.update(newly_covered)
-            
-            # Update j-subset coverage counts
+
             for s_mask in newly_covered:
                 if s_mask in self._s_to_j:
                     for j_idx, _ in self._s_to_j[s_mask]:
                         j_covered_count[j_idx] += 1
-            
+
             iteration += 1
-            
+
             if iteration % log_interval == 0:
                 self._report(
                     "greedy",
@@ -395,217 +332,195 @@ class TCoveringSolver:
                     sol_size=len(selected),
                     remaining=len(unsatisfied_j),
                 )
-        
-        return None
-    
-    def _score_candidate(self, cand_idx: int, covered_s: set, j_covered_count: np.ndarray) -> int:
+
+    def _score_candidate(
+        self, cand_idx: int, covered_s: set, j_covered_count: np.ndarray
+    ) -> int:
         """Fast candidate scoring."""
         score = 0
         cand_s_covers = self._cand_covers_s[cand_idx]
-        
+
         for s_mask in cand_s_covers:
             if s_mask in covered_s:
                 continue
-            
+
             if s_mask in self._s_to_j:
                 for j_idx, _ in self._s_to_j[s_mask]:
                     if j_covered_count[j_idx] < self.t:
                         score += 1
                         break
-        
+
         return score
-    
-    def _sample_candidates(self, selected_set: set, unsatisfied_j: np.ndarray, k: int) -> list[int]:
+
+    def _sample_candidates(
+        self, selected_set: set, unsatisfied_j: np.ndarray, k: int
+    ) -> list[int]:
         """Sample high-potential candidates for large instances."""
-        # Heuristic: prefer candidates that cover elements in unsatisfied j-subsets
         candidates = []
-        
-        # For very large instances, sample fewer unsatisfied j-subsets
-        if self._is_very_large or self._is_huge:
-            sample_size = min(50, len(unsatisfied_j))
-        else:
-            sample_size = min(100, len(unsatisfied_j))
-        
-        # Get elements that appear in unsatisfied j-subsets
+
         hot_elements = set()
-        for j_idx in unsatisfied_j[:sample_size]:
+        for j_idx in unsatisfied_j[: min(100, len(unsatisfied_j))]:
             j_mask = int(self.target_masks[j_idx])
             hot_elements.update(mask_to_elements(j_mask))
-        
-        # For very large instances, sample candidates instead of checking all
-        if self._is_very_large or self._is_huge:
-            # Random sampling of candidates
-            sample_cands = min(k * 3, self.num_cands)  # Sample 3x the target
-            cand_indices = random.sample(range(self.num_cands), sample_cands)
-        else:
-            cand_indices = range(self.num_cands)
-        
-        # Score candidates by how many hot elements they contain
-        for cand_idx in cand_indices:
+
+        for cand_idx in range(self.num_cands):
             cand_mask = int(self.cand_masks[cand_idx])
             if cand_mask in selected_set:
                 continue
-            
+
             cand_elems = mask_to_elements(cand_mask)
             overlap = len(set(cand_elems) & hot_elements)
-            
+
             if overlap > 0:
                 candidates.append((cand_idx, overlap))
-        
-        # Return top-K by overlap
+
         candidates.sort(key=lambda x: x[1], reverse=True)
         return [c[0] for c in candidates[:k]]
 
-    def _local_search(self, solution: list[int]) -> list[int]:
-        """Fast local search with early termination."""
+    def _fast_local_search(self, solution: list[int]) -> list[int]:
+        """Optimized local search with incremental verification."""
         if len(solution) <= 3:
             return solution
-        
+
         self._report("local_search", f"Optimizing {len(solution)} groups...")
-        
+
+        covered_s_masks = set()
+        for mask in solution:
+            mask_int = int(mask)
+            cand_idx = self._cand_index_map.get(mask_int)
+            if cand_idx is not None:
+                covered_s_masks.update(self._cand_covers_s[cand_idx])
+
+        j_covered_count = np.zeros(self.num_targets, dtype=np.int32)
+        for s_mask in covered_s_masks:
+            if s_mask in self._s_to_j:
+                for j_idx, _ in self._s_to_j[s_mask]:
+                    j_covered_count[j_idx] += 1
+
         improved = True
         passes = 0
-        
-        # Adaptive max passes based on instance size
-        if self._is_very_large or self._is_huge:
-            max_passes = 2  # More aggressive for very large instances
-        else:
-            max_passes = 3
-        
+        max_passes = 2
+
         while improved and passes < max_passes and not self._cancel():
             improved = False
             passes += 1
-            
+
+            if self._deadline_at and time.time() >= self._deadline_at:
+                break
+
             indices = list(range(len(solution)))
             if passes > 1:
                 random.shuffle(indices)
-            
-            # For very large instances, only try removing a subset of groups
-            if self._is_very_large and len(indices) > 50:
-                # Only try removing the last 30% of groups (likely less critical)
-                indices = indices[-int(len(indices) * 0.3):]
-            
+
             for i in indices:
-                # Check time budget during local search
-                if self._deadline_at and time.time() >= self._deadline_at:
-                    return solution
-                
-                candidate = solution[:i] + solution[i+1:]
-                
-                if self._fast_verify(candidate):
-                    solution = candidate
-                    improved = True
-                    self._report(
-                        "local_search",
-                        f"Removed redundant group -> {len(solution)} groups",
-                        sol_size=len(solution),
-                    )
-                    break
-        
-        return solution
-    
-    def _simulated_annealing(self, solution: list[int]) -> list[int]:
-        """Simulated annealing for solution improvement."""
-        if len(solution) <= 5:
-            return solution
-        
-        self._report("SA", f"Simulated annealing on {len(solution)} groups...")
-        
-        current = solution[:]
-        best = solution[:]
-        best_size = len(best)
-        
-        # SA parameters
-        initial_temp = 10.0
-        final_temp = 0.1
-        cooling_rate = 0.95
-        iterations_per_temp = min(20, len(solution) * 2)
-        
-        temp = initial_temp
-        
-        while temp > final_temp and not self._cancel():
-            for _ in range(iterations_per_temp):
-                # Try to remove a random group
-                if len(current) <= 3:
-                    break
-                
-                remove_idx = random.randint(0, len(current) - 1)
-                neighbor = current[:remove_idx] + current[remove_idx+1:]
-                
-                # Check if neighbor is valid
-                if self._fast_verify(neighbor):
-                    # Accept improvement
-                    current = neighbor
-                    if len(current) < best_size:
-                        best = current[:]
-                        best_size = len(best)
+                removed_mask = solution[i]
+                removed_idx = self._cand_index_map.get(int(removed_mask))
+
+                if removed_idx is None:
+                    continue
+
+                removed_s = self._cand_covers_s[removed_idx]
+
+                can_remove = True
+                for s_mask in removed_s:
+                    if s_mask not in covered_s_masks:
+                        continue
+
+                    if s_mask in self._s_to_j:
+                        for j_idx, _ in self._s_to_j[s_mask]:
+                            other_count = 0
+                            for other_s in self._s_subsets_per_j[
+                                int(self.target_masks[j_idx])
+                            ]:
+                                if other_s != s_mask and other_s in covered_s_masks:
+                                    is_covered_by_others = False
+                                    for j, other_mask in enumerate(solution):
+                                        if j == i:
+                                            continue
+                                        other_idx = self._cand_index_map.get(
+                                            int(other_mask)
+                                        )
+                                        if (
+                                            other_idx is not None
+                                            and other_s
+                                            in self._cand_covers_s[other_idx]
+                                        ):
+                                            is_covered_by_others = True
+                                            break
+                                    if is_covered_by_others:
+                                        other_count += 1
+
+                            if (
+                                j_covered_count[j_idx] - 1 < self.t
+                                and other_count < self.t
+                            ):
+                                can_remove = False
+                                break
+
+                    if not can_remove:
+                        break
+
+                if can_remove:
+                    candidate = solution[:i] + solution[i + 1 :]
+                    if self._incremental_verify(candidate, covered_s_masks, removed_s):
+                        solution = candidate
+                        covered_s_masks -= removed_s
+                        for s_mask in removed_s:
+                            if s_mask in self._s_to_j:
+                                for j_idx, _ in self._s_to_j[s_mask]:
+                                    j_covered_count[j_idx] -= 1
+
+                        improved = True
                         self._report(
-                            "SA",
-                            f"SA improved -> {best_size} groups",
-                            sol_size=best_size,
+                            "local_search",
+                            f"Removed redundant group -> {len(solution)} groups",
+                            sol_size=len(solution),
                         )
-                else:
-                    # Accept with probability based on temperature
-                    delta = 1  # Penalty for invalid solution
-                    if random.random() < math.exp(-delta / temp):
-                        # Try swap instead of remove
-                        neighbor = self._try_swap(current)
-                        if neighbor and self._fast_verify(neighbor):
-                            current = neighbor
-                            if len(current) < best_size:
-                                best = current[:]
-                                best_size = len(best)
-            
-            temp *= cooling_rate
-        
-        return best
-    
-    def _try_swap(self, solution: list[int]) -> list[int] | None:
-        """Try to swap one group with an unused candidate."""
-        if len(solution) == 0:
-            return None
-        
-        # Remove a random group
-        remove_idx = random.randint(0, len(solution) - 1)
-        removed = solution[remove_idx]
-        candidate = solution[:remove_idx] + solution[remove_idx+1:]
-        
-        # Try to add a random unused candidate
-        selected_set = set(solution)
-        unused = [int(self.cand_masks[i]) for i in range(min(100, self.num_cands)) 
-                  if int(self.cand_masks[i]) not in selected_set]
-        
-        if unused:
-            new_group = random.choice(unused)
-            return candidate + [new_group]
-        
-        return None
-    
+                        break
+
+        return solution
+
+    def _incremental_verify(
+        self, masks: list[int], current_covered: set, removed_s: set
+    ) -> bool:
+        """Fast incremental verification."""
+        if not masks:
+            return self.num_targets == 0
+
+        new_covered = current_covered - removed_s
+
+        for j_idx in range(self.num_targets):
+            j_mask = int(self.target_masks[j_idx])
+            s_masks = self._s_subsets_per_j[j_mask]
+
+            covered_count = sum(1 for s_mask in s_masks if s_mask in new_covered)
+
+            if covered_count < self.t:
+                return False
+
+        return True
+
     def _fast_verify(self, masks: list[int]) -> bool:
         """Fast verification with early termination."""
         if not masks:
             return self.num_targets == 0
-        
-        # Build covered s-masks set
+
         covered_s = set()
         for mask in masks:
-            # Use precomputed coverage
             mask_int = int(mask)
-            for cand_idx in range(self.num_cands):
-                if int(self.cand_masks[cand_idx]) == mask_int:
-                    covered_s.update(self._cand_covers_s[cand_idx])
-                    break
-        
-        # Check each j-subset
+            cand_idx = self._cand_index_map.get(mask_int)
+            if cand_idx is not None:
+                covered_s.update(self._cand_covers_s[cand_idx])
+
         for j_idx in range(self.num_targets):
             j_mask = int(self.target_masks[j_idx])
             s_masks = self._s_subsets_per_j[j_mask]
-            
+
             covered_count = sum(1 for s_mask in s_masks if s_mask in covered_s)
-            
+
             if covered_count < self.t:
-                return False  # Early termination
-        
+                return False
+
         return True
 
     def _verify(self, masks: list[int]) -> bool:
@@ -616,10 +531,9 @@ class TCoveringSolver:
         for j_idx in range(self.num_targets):
             j_mask = int(self.target_masks[j_idx])
             s_masks = self._s_subsets_per_j[j_mask]
-            
+
             covered_s_count = 0
             for s_mask in s_masks:
-                # Check if any group covers this s-subset
                 is_covered = False
                 for group_mask in masks:
                     if (s_mask & group_mask) == s_mask:
@@ -627,8 +541,8 @@ class TCoveringSolver:
                         break
                 if is_covered:
                     covered_s_count += 1
-            
+
             if covered_s_count < self.t:
                 return False
-        
+
         return True
