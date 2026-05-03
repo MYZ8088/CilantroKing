@@ -40,3 +40,53 @@ htmlcov/
 *.log
 *.tmp
 tmp*.py
+
+# --- Test files ---
+test_*.py
+quick_test_*.py
+*_test.py
+
+# --- Documentation and summary files ---
+*_SUMMARY.md
+*_COMPLETE.md
+*_STATUS.md
+*_ANALYSIS.md
+*_OPTIMIZATION*.md
+*_VERIFICATION*.md
+*_EXPLANATION.md
+*_COMPARISON.md
+*_INTEGRATION*.md
+*_CHECKLIST.md
+QUICK_REFERENCE.md
+PHONE_APP.md
+
+# Exception: Keep update files for merge coordination
+!N14_OPTIMIZATION_UPDATE.md
+!*_UPDATE.md
+
+# --- Project documents ---
+Group Project*.pdf
+
+# --- App and example files ---
+app_*.py
+phone_app.py
+phase_k_example.py
+eval.py
+solver.py
+main.py
+
+# --- Backup files ---
+*_backup.py
+*_optimized_backup.py
+
+# --- Specialized modules (root level) ---
+n19_specialized_module.py
+
+# --- Results and data ---
+results/
+*.json
+results.db
+test_solution_time.db
+
+# --- Tools ---
+tools/

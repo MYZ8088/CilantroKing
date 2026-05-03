@@ -819,16 +819,15 @@ class CoveringDesignSolver:
         # N=12 optimization: aggressive early stopping (10% error tolerance)
         # Exception: L_12_6_4_3 uses original algorithm
         # N=13 optimization: only L_13_6_5_5 uses optimization
-        # N=14 optimization: minimize main loop, maximize refinement
-        # Exception: L_14_7_7_6 uses original algorithm (too difficult for optimization)
+        # N=14 optimization: all cases use optimization
         if self.n == 12 and not (self.k == 6 and self.j == 4 and self.s == 3):
-            hard_cap = min(hard_cap, 4)
+            hard_cap = min(hard_cap, 3)
             stagnation_limit_override = 2
         elif self.n == 13 and self.k == 6 and self.j == 5 and self.s == 5:
             hard_cap = min(hard_cap, 4)
             stagnation_limit_override = 2
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # All n=14 except L_14_7_7_6: use hard_cap=3
+        elif self.n == 14:
+            # All n=14: use hard_cap=3, stagnation_limit=2
             hard_cap = min(hard_cap, 3)
             stagnation_limit_override = 2
         else:
@@ -1059,23 +1058,58 @@ class CoveringDesignSolver:
             best = self._phase_h_nlt16_cp_sat_refine(best)
             best = self._phase_i_nlt16_cluster_specialized_refine(best)
             best = self._phase_k_cluster_structural_refine(best)
+            
+            # N=14 containment cases: skip all refinement after Phase-K
+            # These cases benefit greatly from Phase-K but little from subsequent refinement
+            if self.n == 14 and self._containment:
+                self._report("optimize", f"N14 containment: skipping refinement after Phase-K, returning {len(best)} groups")
+                masks = best or []
+                return SolverResult(
+                    groups=[sorted(mask_to_elements(m)) for m in masks],
+                    elapsed=time.time() - self._t0,
+                    verified=False,
+                    first_legal_elapsed=self._first_legal_elapsed,
+                    route_module=__name__,
+                    solution_source="search",
+                    route_case=f"L({self.n},{self.k},{self.j},{self.s})",
+                )
+            
             best = self._phase_n17_specialized_module_dispatch(best)
+            
+            # N=14 early stopping: check if we should continue refinement
+            # Based on: remaining time, improvement rate, and solution quality
+            should_continue_n14_refinement = True
+            if self.n == 14:
+                rem = self._time_remaining_sec()
+                # If less than 10s remaining, skip final refinement to save time
+                if rem is not None and rem < 10.0:
+                    should_continue_n14_refinement = False
+                    self._report("optimize", f"N14 early stop: only {rem:.1f}s remaining, skipping final refinement")
             
             # N=12 optimization: reduce final refinement (10% error tolerance)
             # Exception: L_12_6_4_3 uses original algorithm
             # N=13: only L_13_6_5_5 uses reduced refinement
+            # N=14: adaptive refinement based on early stopping
             if self.n == 12 and not (self.k == 6 and self.j == 4 and self.s == 3):
                 final_rounds = 1
                 final_time_threshold = 2.0
             elif self.n == 13 and self.k == 6 and self.j == 5 and self.s == 5:
                 final_rounds = 1
                 final_time_threshold = 2.0
+            elif self.n == 14:
+                # N=14: adaptive rounds based on remaining time
+                if not should_continue_n14_refinement:
+                    final_rounds = 0  # Skip if early stop triggered
+                else:
+                    final_rounds = 1  # Reduced to 1 round for faster completion
+                final_time_threshold = 3.0  # Lower threshold for n=14
             else:
                 final_rounds = 2
                 final_time_threshold = 6.0
             
-            if self.n < 16 and self._deadline_at is not None:
-                for _ in range(final_rounds):
+            if self.n < 16 and self._deadline_at is not None and final_rounds > 0:
+                n14_stagnation_count = 0  # Track stagnation for n=14
+                for round_idx in range(final_rounds):
                     rem = self._time_remaining_sec()
                     if rem is None or rem < final_time_threshold:
                         break
@@ -1083,7 +1117,17 @@ class CoveringDesignSolver:
                     best = self._phase_h_nlt16_cp_sat_refine(best)
                     best = self._phase_i_nlt16_cluster_specialized_refine(best)
                     best = self._phase_k_cluster_structural_refine(best)
-                    if len(best) >= before:
+                    
+                    # N=14 early stopping: if no improvement, stop immediately
+                    if self.n == 14:
+                        if len(best) >= before:
+                            n14_stagnation_count += 1
+                            if n14_stagnation_count >= 1:  # Stop after 1 stagnant round
+                                self._report("optimize", f"N14 early stop: no improvement in round {round_idx + 1}, stopping refinement")
+                                break
+                        else:
+                            n14_stagnation_count = 0  # Reset on improvement
+                    elif len(best) >= before:
                         break
 
         masks = best or []
@@ -1698,6 +1742,10 @@ class CoveringDesignSolver:
         return self.k >= 6 and self.j >= 4
 
     def _tail_refine_reserve_sec(self) -> float:
+        # L(14,6,4,4): Reserve 70s for N14 specialized optimization
+        if self.n == 14 and self.k == 6 and self.j == 4 and self.s == 4:
+            return 70.0
+        
         if self._n17_special_case_enabled:
             if self._n17_special_case_bucket == "tiny_baseline_exactish":
                 if self.k >= 7:
@@ -3804,8 +3852,8 @@ class CoveringDesignSolver:
                 cap = 4.0
             else:
                 cap = 4.0
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # N=14 except L_14_7_7_6: moderate time budget
+        elif self.n == 14:
+            # N=14: moderate time budget
             if self.num_cands <= 320:
                 cap = 3.0
             elif self.num_cands <= 1_000:
@@ -4261,8 +4309,8 @@ class CoveringDesignSolver:
             floor = 1.0
             budget = max(floor, min(cap, remaining_sec * frac))
             return max(0.0, min(remaining_sec - 0.8, budget))
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # Other n=14 except L_14_7_7_6: simple fast iteration (like n=12)
+        elif self.n == 14:
+            # N=14: simple fast iteration (like n=12)
             frac = 0.06
             cap = 3.0
             floor = 1.0
@@ -4579,17 +4627,21 @@ class CoveringDesignSolver:
         # N=12 optimization: reduce rounds for aggressive time reduction
         # Exception: L_12_6_4_3 uses original algorithm
         # N=13 optimization: only L_13_6_5_5 (j≠k case: rounds=4)
-        # N=14 optimization: classified by difficulty
+        # N=14 optimization: classified by difficulty with early stopping
         if self.n == 12 and not (self.k == 6 and self.j == 4 and self.s == 3):
             rounds = 4
         elif self.n == 13 and self.k == 6 and self.j == 5 and self.s == 5:
             rounds = 4
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # N=14 except L_14_7_7_6: simple fast iteration (like n=12)
+        elif self.n == 14:
+            # N=14: fast iteration with early stopping
             rounds = 4
         else:
             rounds = 10 if len(best) < 300 else 8
-        for _ in range(rounds):
+        
+        # N=14 early stopping: track consecutive misses
+        n14_consecutive_misses = 0
+        
+        for round_idx in range(rounds):
             rem = self._time_remaining_sec()
             if rem is None or rem < 3.2:
                 break
@@ -4605,12 +4657,19 @@ class CoveringDesignSolver:
             improved = self._phase_g_try_target_len(start_masks, target_len, round_budget)
             if improved is None:
                 misses += 1
+                # N=14 early stopping: more aggressive miss threshold
+                if self.n == 14:
+                    n14_consecutive_misses += 1
+                    if n14_consecutive_misses >= 2:  # Stop after 2 consecutive misses
+                        self._report("optimize", f"Phase-I N14 early stop: {n14_consecutive_misses} consecutive misses")
+                        break
                 if misses >= 3 and rem < 14.0:
                     break
                 continue
             if len(improved) < len(best):
                 best = improved
                 misses = 0
+                n14_consecutive_misses = 0  # Reset on improvement
                 self._report(
                     "optimize",
                     f"Phase-I containment-cycle improved to {len(best)} groups",
@@ -4710,8 +4769,8 @@ class CoveringDesignSolver:
             floor = 1.0
             budget = max(floor, min(cap, remaining_sec * frac))
             return max(0.0, min(remaining_sec - 0.8, budget))
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # Other n=14 except L_14_7_7_6: simple fast iteration (like n=12)
+        elif self.n == 14:
+            # N=14: simple fast iteration (like n=12)
             frac = 0.06
             cap = 3.0
             floor = 1.0
@@ -4794,8 +4853,8 @@ class CoveringDesignSolver:
             rounds = 2
         elif self.n == 13 and self.k == 6 and self.j == 5 and self.s == 5:
             rounds = 2
-        elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-            # N=14 except L_14_7_7_6: simple fast iteration (like n=12)
+        elif self.n == 14:
+            # N=14: simple fast iteration (like n=12)
             rounds = 2
         else:
             rounds = 5 if hard_case else 3
@@ -4880,8 +4939,8 @@ class CoveringDesignSolver:
                 # L_13_6_5_5: j≠k case
                 budget_cap = min(budget_cap, 3.0)
                 ratio = min(ratio, 0.06)
-            elif self.n == 14 and not (self.k == 7 and self.j == 7 and self.s == 6):
-                # N=14 except L_14_7_7_6: simple fast iteration (like n=12)
+            elif self.n == 14:
+                # N=14: simple fast iteration (like n=12)
                 budget_cap = min(budget_cap, 3.0)
                 ratio = min(ratio, 0.06)
             elif self.n < 16:
@@ -4962,6 +5021,12 @@ class CoveringDesignSolver:
         remaining = self._time_remaining_sec()
         if remaining is None or remaining < 3.5:
             return sol
+        
+        # N=14 early stopping: skip Phase-K if time is tight
+        if self.n == 14:
+            if remaining < 15.0:  # Need at least 15s for Phase-K to be worthwhile
+                self._report("optimize", f"Phase-K N14 skip: only {remaining:.1f}s remaining")
+                return sol
 
         best = list(sol)
         if self.j == self.k and not self._containment and self.s == (self.k - 1):
