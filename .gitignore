@@ -16,7 +16,7 @@ dist/
 build/
 *.egg
 
-# --- Database ---
+# --- Database files (data only, not code) ---
 *.db
 *.sqlite
 *.sqlite3
@@ -41,7 +41,7 @@ htmlcov/
 *.tmp
 tmp*.py
 
-# --- Test files ---
+# --- Test files only ---
 test_*.py
 quick_test_*.py
 *_test.py
@@ -67,13 +67,8 @@ PHONE_APP.md
 # --- Project documents ---
 Group Project*.pdf
 
-# --- App and example files ---
-app_*.py
-phone_app.py
+# --- Example files (demonstrations only) ---
 phase_k_example.py
-eval.py
-solver.py
-main.py
 
 # --- Backup files ---
 *_backup.py

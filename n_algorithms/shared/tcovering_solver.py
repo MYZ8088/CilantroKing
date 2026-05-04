@@ -180,17 +180,29 @@ class TCoveringSolver:
         self._cb(prog)
 
     def solve(self) -> SolverResult:
-        """Solve the t-covering problem using greedy + local search."""
+        """Solve the t-covering problem using multiple strategies."""
         self._report("start", f"Starting t-covering solver (t={self.t})...")
 
         best_solution = None
         best_size = float("inf")
 
-        effective_attempts = self._num_attempts
+        # Strategy 1: Iterative shrinking (try to reduce from a larger solution)
+        if not self._is_huge:
+            self._report("shrink", "Trying iterative shrinking strategy...")
+            shrink_solution = self._iterative_shrink()
+            if shrink_solution and len(shrink_solution) < best_size:
+                best_solution = shrink_solution
+                best_size = len(shrink_solution)
+                if self._first_legal_elapsed is None:
+                    self._first_legal_elapsed = time.time() - self._t0
+                self._report("improve", f"Shrink strategy: {best_size} groups", sol_size=best_size)
+
+        # Strategy 2: Multiple greedy attempts with different strategies
+        effective_attempts = self._num_attempts * 3
         if self._is_huge:
-            effective_attempts = max(1, self._num_attempts // 2)
+            effective_attempts = max(5, self._num_attempts * 2)
         elif self._deadline_at:
-            effective_attempts = max(2, self._num_attempts // 2)
+            effective_attempts = max(10, self._num_attempts * 2)
 
         for attempt in range(effective_attempts):
             if self._cancel():
@@ -202,11 +214,20 @@ class TCoveringSolver:
 
             self._report("attempt", f"Attempt {attempt + 1}/{effective_attempts}")
 
+            # Vary strategies
             use_randomization = attempt > 0
-            solution = self._greedy_solve(randomize=use_randomization)
+            use_weighted_scoring = attempt % 3 == 1
+            
+            solution = self._greedy_solve(
+                randomize=use_randomization,
+                use_weighted=use_weighted_scoring
+            )
 
             if solution:
+                # Apply all local search methods
                 solution = self._fast_local_search(solution)
+                solution = self._swap_local_search(solution)
+                solution = self._merge_local_search(solution)
 
                 if len(solution) < best_size:
                     best_solution = solution
@@ -242,7 +263,7 @@ class TCoveringSolver:
             first_legal_elapsed=self._first_legal_elapsed,
         )
 
-    def _greedy_solve(self, randomize: bool = False) -> list[int] | None:
+    def _greedy_solve(self, randomize: bool = False, use_weighted: bool = False) -> list[int] | None:
         """Optimized greedy algorithm with adaptive top-K for large instances."""
         selected = []
         selected_set = set()
@@ -290,9 +311,14 @@ class TCoveringSolver:
                 if cand_mask in selected_set:
                     continue
 
-                score = self._score_candidate(
-                    cand_idx, covered_s_masks, j_covered_count
-                )
+                if use_weighted:
+                    score = self._score_candidate_weighted(
+                        cand_idx, covered_s_masks, j_covered_count
+                    )
+                else:
+                    score = self._score_candidate(
+                        cand_idx, covered_s_masks, j_covered_count
+                    )
 
                 if score > 0:
                     candidate_scores.append((cand_idx, score))
@@ -350,6 +376,29 @@ class TCoveringSolver:
                         score += 1
                         break
 
+        return score
+
+    def _score_candidate_weighted(
+        self, cand_idx: int, covered_s: set, j_covered_count: np.ndarray
+    ) -> float:
+        """Weighted scoring that prioritizes rare coverage."""
+        cand_s_covers = self._cand_covers_s[cand_idx]
+        
+        score = 0.0
+        
+        for s_mask in cand_s_covers:
+            if s_mask in covered_s:
+                continue
+            
+            if s_mask in self._s_to_j:
+                for j_idx, _ in self._s_to_j[s_mask]:
+                    if j_covered_count[j_idx] < self.t:
+                        # Weight by gap: prioritize j-subsets furthest from target
+                        gap = self.t - j_covered_count[j_idx]
+                        # Quadratic penalty for larger gaps
+                        score += gap * gap
+                        break
+        
         return score
 
     def _sample_candidates(
@@ -546,3 +595,236 @@ class TCoveringSolver:
                 return False
 
         return True
+
+    def _swap_local_search(self, solution: list[int]) -> list[int]:
+        """1-1 swap local search: try replacing each group with a better one."""
+        if len(solution) <= 2:
+            return solution
+        
+        if self._deadline_at and time.time() >= self._deadline_at:
+            return solution
+        
+        self._report("swap_search", f"Trying 1-1 swaps on {len(solution)} groups...")
+        
+        improved = True
+        passes = 0
+        max_passes = 1  # One pass is usually enough
+        
+        while improved and passes < max_passes and not self._cancel():
+            improved = False
+            passes += 1
+            
+            if self._deadline_at and time.time() >= self._deadline_at:
+                break
+            
+            # Try replacing each group
+            for i in range(len(solution)):
+                if self._cancel():
+                    break
+                
+                # Remove group i temporarily
+                removed_mask = solution[i]
+                temp_solution = solution[:i] + solution[i+1:]
+                
+                # Find what coverage is lost
+                removed_idx = self._cand_index_map.get(int(removed_mask))
+                if removed_idx is None:
+                    continue
+                
+                # Build coverage state without this group
+                covered_s = set()
+                for mask in temp_solution:
+                    mask_int = int(mask)
+                    cand_idx = self._cand_index_map.get(mask_int)
+                    if cand_idx is not None:
+                        covered_s.update(self._cand_covers_s[cand_idx])
+                
+                j_covered_count = np.zeros(self.num_targets, dtype=np.int32)
+                for s_mask in covered_s:
+                    if s_mask in self._s_to_j:
+                        for j_idx, _ in self._s_to_j[s_mask]:
+                            j_covered_count[j_idx] += 1
+                
+                # Find best replacement
+                best_replacement_idx = None
+                best_replacement_score = -1
+                
+                for cand_idx in range(self.num_cands):
+                    cand_mask = int(self.cand_masks[cand_idx])
+                    
+                    # Skip if already in solution
+                    if cand_mask in [int(m) for m in temp_solution]:
+                        continue
+                    
+                    # Score this candidate
+                    score = self._score_candidate_weighted(
+                        cand_idx, covered_s, j_covered_count
+                    )
+                    
+                    if score > best_replacement_score:
+                        best_replacement_score = score
+                        best_replacement_idx = cand_idx
+                
+                # Try the replacement
+                if best_replacement_idx is not None:
+                    new_mask = int(self.cand_masks[best_replacement_idx])
+                    new_solution = temp_solution + [new_mask]
+                    
+                    # Verify it's still valid
+                    if self._fast_verify(new_solution):
+                        solution = new_solution
+                        improved = True
+                        self._report(
+                            "swap_search",
+                            f"Swapped group {i} -> better solution still {len(solution)} groups",
+                            sol_size=len(solution),
+                        )
+                        break  # Start over after improvement
+        
+        return solution
+
+    def _merge_local_search(self, solution: list[int]) -> list[int]:
+        """2-1 merge local search: try replacing two groups with one better group."""
+        if len(solution) <= 3:
+            return solution
+        
+        if self._deadline_at and time.time() >= self._deadline_at:
+            return solution
+        
+        self._report("merge_search", f"Trying 2-1 merges on {len(solution)} groups...")
+        
+        improved = True
+        passes = 0
+        max_passes = 1
+        
+        while improved and passes < max_passes and not self._cancel():
+            improved = False
+            passes += 1
+            
+            if self._deadline_at and time.time() >= self._deadline_at:
+                break
+            
+            # Try removing pairs of groups
+            for i in range(len(solution)):
+                for j in range(i + 1, min(i + 10, len(solution))):  # Limit search
+                    if self._cancel():
+                        break
+                    
+                    # Remove groups i and j
+                    temp_solution = [solution[k] for k in range(len(solution)) if k != i and k != j]
+                    
+                    # Build coverage state without these groups
+                    covered_s = set()
+                    for mask in temp_solution:
+                        mask_int = int(mask)
+                        cand_idx = self._cand_index_map.get(mask_int)
+                        if cand_idx is not None:
+                            covered_s.update(self._cand_covers_s[cand_idx])
+                    
+                    j_covered_count = np.zeros(self.num_targets, dtype=np.int32)
+                    for s_mask in covered_s:
+                        if s_mask in self._s_to_j:
+                            for j_idx, _ in self._s_to_j[s_mask]:
+                                j_covered_count[j_idx] += 1
+                    
+                    # Find best single replacement
+                    best_replacement_idx = None
+                    best_replacement_score = -1
+                    
+                    for cand_idx in range(self.num_cands):
+                        cand_mask = int(self.cand_masks[cand_idx])
+                        
+                        # Skip if already in solution
+                        if cand_mask in [int(m) for m in temp_solution]:
+                            continue
+                        
+                        # Score this candidate
+                        score = self._score_candidate_weighted(
+                            cand_idx, covered_s, j_covered_count
+                        )
+                        
+                        if score > best_replacement_score:
+                            best_replacement_score = score
+                            best_replacement_idx = cand_idx
+                    
+                    # Try the replacement
+                    if best_replacement_idx is not None:
+                        new_mask = int(self.cand_masks[best_replacement_idx])
+                        new_solution = temp_solution + [new_mask]
+                        
+                        # Verify it's still valid
+                        if self._fast_verify(new_solution):
+                            solution = new_solution
+                            improved = True
+                            self._report(
+                                "merge_search",
+                                f"Merged 2 groups into 1 -> {len(solution)} groups",
+                                sol_size=len(solution),
+                            )
+                            break  # Start over after improvement
+                
+                if improved:
+                    break
+        
+        return solution
+
+    def _iterative_shrink(self) -> list[int] | None:
+        """
+        Iterative shrinking: start with all candidates, then iteratively remove groups.
+        This explores from a different direction than greedy construction.
+        """
+        if self._deadline_at and time.time() >= self._deadline_at:
+            return None
+        
+        # Start with a large solution (all candidates or a subset)
+        if self.num_cands > 50:
+            # For larger problems, start with a random subset
+            initial_size = min(self.num_cands, max(20, self.num_targets // 2))
+            indices = random.sample(range(self.num_cands), initial_size)
+            current_solution = [int(self.cand_masks[i]) for i in indices]
+        else:
+            # For small problems, start with all candidates
+            current_solution = [int(m) for m in self.cand_masks]
+        
+        # Verify it's valid
+        if not self._fast_verify(current_solution):
+            # If not valid, add more groups greedily
+            return None
+        
+        self._report("shrink", f"Starting with {len(current_solution)} groups, shrinking...")
+        
+        # Iteratively try to remove groups
+        improved = True
+        iterations = 0
+        max_iterations = len(current_solution)
+        
+        while improved and iterations < max_iterations:
+            improved = False
+            iterations += 1
+            
+            if self._cancel() or (self._deadline_at and time.time() >= self._deadline_at):
+                break
+            
+            # Try to remove each group
+            indices = list(range(len(current_solution)))
+            random.shuffle(indices)  # Random order
+            
+            for i in indices:
+                candidate = current_solution[:i] + current_solution[i+1:]
+                
+                if self._fast_verify(candidate):
+                    current_solution = candidate
+                    improved = True
+                    self._report(
+                        "shrink",
+                        f"Removed group -> {len(current_solution)} groups",
+                        sol_size=len(current_solution),
+                    )
+                    break  # Restart after each removal
+        
+        # Apply local search to polish
+        if current_solution:
+            current_solution = self._swap_local_search(current_solution)
+            current_solution = self._merge_local_search(current_solution)
+        
+        return current_solution
