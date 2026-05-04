@@ -138,12 +138,17 @@ class TCoveringSolver:
             self._j_to_s_indices[j_idx] = list(enumerate(s_masks))
             all_s_masks.update(s_masks)
 
+        # Optimized: compute candidate coverage by generating s-subsets from candidate
+        # instead of checking all s-subsets against candidate
         self._cand_covers_s = []
         for cand_idx in range(self.num_cands):
             cand_mask = int(self.cand_masks[cand_idx])
+            cand_elems = mask_to_elements(cand_mask)
+            # Generate all s-subsets contained in this candidate
             covered_s = set()
-            for s_mask in all_s_masks:
-                if (s_mask & cand_mask) == s_mask:
+            for s_combo in combinations(cand_elems, self.s):
+                s_mask = elements_to_mask(s_combo)
+                if s_mask in all_s_masks:  # Only keep s-subsets that are relevant
                     covered_s.add(s_mask)
             self._cand_covers_s.append(covered_s)
 
