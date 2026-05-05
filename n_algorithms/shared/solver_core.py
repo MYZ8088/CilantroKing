@@ -59,45 +59,6 @@ except ImportError:
     run_n18_specialized_module = None  # type: ignore
 
 
-@lru_cache(maxsize=1)
-def _n_le_15_baseline_index() -> dict[tuple[int, int, int, int], int]:
-    root = Path(__file__).resolve().parent
-    candidates = [
-        root / "coveringrepo_n_lt_26_baselines(1).json",
-        root / "results" / "coveringrepo_n_lt_26_baselines.json",
-        root / "results" / "n_le_15_all_legal_baselines_filled_v1.json",
-    ]
-    payload = None
-    for path in candidates:
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            break
-        except Exception:
-            continue
-    if payload is None:
-        return {}
-    cases = payload.get("cases")
-    if not isinstance(cases, list):
-        return {}
-    index: dict[tuple[int, int, int, int], int] = {}
-    for case in cases:
-        if not isinstance(case, dict):
-            continue
-        try:
-            key = (
-                int(case["n"]),
-                int(case["k"]),
-                int(case["j"]),
-                int(case["s"]),
-            )
-            index[key] = int(case["baseline_blocks"])
-        except Exception:
-            continue
-    return index
-
-
 def _add_windows_cuda_dll_dirs() -> None:
     """Make CuPy find CUDA DLLs from pip nvidia-* packages on Windows."""
     if os.name != "nt":
@@ -563,12 +524,6 @@ class CoveringDesignSolver:
             raise ValueError(f"t must be between 1 and C({j},{s})={max_t}, got {t}")
 
         self._reference_bounds = get_bounds(n, k, j, s)
-        baseline_blocks = _n_le_15_baseline_index().get((int(n), int(k), int(j), int(s)))
-        self._acceptance_upper_bound = (
-            int(math.ceil(baseline_blocks * 1.10))
-            if baseline_blocks is not None and int(n) <= 15
-            else None
-        )
         self._containment = s == j
 
         elems = list(range(n))
@@ -853,11 +808,6 @@ class CoveringDesignSolver:
                 best_updated_at = time.time()
                 self._note_legal_solution()
                 self._report("seed", f"Fast legal seed: {len(seed)} groups")
-                if self._can_stop_at_acceptance(best):
-                    self._report(
-                        "optimize",
-                        f"Acceptance target reached from seed: {len(best)} groups",
-                    )
         
         # N18 optimization: refine seed for small j=k non-containment cases
         if (
@@ -874,12 +824,6 @@ class CoveringDesignSolver:
 
         large_seed_intensify = self._is_large_j_equals_k_noncontainment()
         while attempt < hard_cap:
-            if self._can_stop_at_acceptance(best):
-                self._report(
-                    "optimize",
-                    f"Acceptance target reached: {len(best)} groups",
-                )
-                break
             attempt_idx = attempt + 1
             if self._cancel():
                 break
@@ -991,12 +935,6 @@ class CoveringDesignSolver:
                 best_len_at_start is None or len(best) < best_len_at_start
             ):
                 best_updated_at = time.time()
-                if self._can_stop_at_acceptance(best):
-                    self._report(
-                        "optimize",
-                        f"Acceptance target reached after attempt {attempt_idx}: {len(best)} groups",
-                    )
-                    break
 
             attempt_elapsed = max(0.0, time.time() - attempt_started_at)
             if avg_attempt_sec is None:
@@ -1459,43 +1397,27 @@ class CoveringDesignSolver:
             return self._reference_bounds.get("ljcr_best") or self._reference_bounds.get("lower_bound")
         return self._reference_bounds.get("lower_bound")
 
-    def _acceptance_target_upper_bound(self) -> int | None:
-        if self._acceptance_upper_bound is not None:
-            return self._acceptance_upper_bound
-        return self._target_reference_upper_bound()
-
     def _near_reference_quality(self, sol_len: int) -> bool:
-        ref = self._acceptance_target_upper_bound()
+        """Check if solution is near theoretical lower bound quality."""
+        ref = self._target_reference_upper_bound()
         if not ref or ref <= 0:
             return False
-        return sol_len <= int(math.ceil(ref * 1.10))
-
-    def _can_stop_at_acceptance(self, sol: list[int] | None) -> bool:
-        if not sol:
-            return False
-        target = self._acceptance_target_upper_bound()
-        if not target or len(sol) > target:
-            return False
-        return self._skip_final_verify or self._verify(sol)
+        return sol_len <= int(math.ceil(ref * 1.15))
 
     def _tail_polish_round_limit(self, sol_len: int) -> int:
+        """Determine number of polish rounds based on problem size."""
         if self.n >= 16:
             return 3
         if self._containment:
-            if self._near_reference_quality(sol_len):
-                return 1
             return 2 if self.n >= 14 and self.k >= 6 else 1
         if self.j == self.k and self.s == (self.k - 1):
-            if self.n >= 14 or not self._near_reference_quality(sol_len):
-                return 2
-            return 1
+            return 2 if self.n >= 14 else 1
         if self.j == self.k:
-            return 1
-        if self._near_reference_quality(sol_len):
             return 1
         return 2 if self.n >= 15 and sol_len <= 80 else 1
 
     def _should_skip_tail_phase(self, phase_tag: str, sol_len: int, pass_idx: int) -> bool:
+        """Decide whether to skip a tail optimization phase based on time and quality."""
         remaining = self._time_remaining_sec()
         if remaining is None or self.n >= 16:
             return False
