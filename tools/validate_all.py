@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from n_algorithms.shared.verification import result_masks, verify_masks_with_solver
+from database import ResultDatabase
 from solver import CoveringDesignSolver
 
 DEFAULT_BASELINE = ROOT / "n_algorithms" / "shared" / "baselines" / "coveringrepo_n_lt_26_baselines.json"
@@ -163,6 +164,7 @@ def run_case(case: Case, time_limit: float, attempts: int, verify: bool) -> dict
         result = solver.solve()
         solve_elapsed = time.time() - solve_started_at
         masks = result_masks(result)
+        groups = result.preview_groups(None)
         route_module = getattr(result, "route_module", "")
         solution_source = getattr(result, "solution_source", "")
         num_groups = int(result.num_groups)
@@ -213,6 +215,8 @@ def run_case(case: Case, time_limit: float, attempts: int, verify: bool) -> dict
         "solution_source": solution_source,
         "error": error,
         "verify_error": verify_error,
+        "_groups": groups if not error else [],
+        "_first_legal_elapsed": getattr(result, "first_legal_elapsed", None) if not error else None,
     }
 
 
@@ -273,11 +277,12 @@ class CsvOutputs:
     def write_row(self, row: dict[str, object]) -> None:
         if self._summary_writer is None or self._summary_handle is None:
             raise RuntimeError("CSV outputs are not open")
-        self._summary_writer.writerow(row)
+        csv_row = {field: row.get(field, "") for field in FIELDNAMES}
+        self._summary_writer.writerow(csv_row)
         self._summary_handle.flush()
         n = int(row["n"])
         writer, handle = self._writer_for_n(n)
-        writer.writerow(row)
+        writer.writerow(csv_row)
         handle.flush()
 
     def _writer_for_n(self, n: int) -> tuple[csv.DictWriter, object]:
@@ -293,6 +298,59 @@ class CsvOutputs:
         return writer, handle
 
 
+def save_row_to_db(row: dict[str, object], db: ResultDatabase) -> str:
+    if row.get("error") or row.get("verify_error"):
+        return ""
+
+    groups = row.get("_groups")
+    if not isinstance(groups, list) or not groups:
+        return ""
+
+    n = int(row["n"])
+    samples = list(range(1, n + 1))
+    stored_groups = [
+        [int(element) + 1 for element in group]
+        for group in groups
+    ]
+    first_legal_elapsed = row.get("_first_legal_elapsed")
+    return db.save(
+        n,
+        n,
+        int(row["k"]),
+        int(row["j"]),
+        int(row["s"]),
+        samples,
+        stored_groups,
+        float(row["solve_elapsed_sec"]),
+        float(first_legal_elapsed) if first_legal_elapsed is not None else None,
+        t=int(row["t"]),
+    )
+
+
+def write_and_report_row(
+    *,
+    index: int,
+    total: int,
+    row: dict[str, object],
+    outputs: CsvOutputs,
+    db: ResultDatabase | None,
+) -> None:
+    stored_filename = save_row_to_db(row, db) if db is not None else ""
+    outputs.write_row(row)
+    status = (
+        "ok"
+        if row["verified"] and not row["error"] and not row["verify_error"]
+        else "check"
+    )
+    print(
+        f"[{index}/{total}] {row['case_id']} {status}: "
+        f"baseline={row['baseline_blocks']} actual={row['actual_blocks']} "
+        f"error%={row['error_pct']} solve={row['solve_elapsed_sec']}s "
+        f"verify={row['verify_elapsed_sec']}s total={row['elapsed_sec']}s "
+        f"db={stored_filename or '-'}"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate all n=7..25 covering-design cases")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
@@ -305,6 +363,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-min", type=int, default=7)
     parser.add_argument("--n-max", type=int, default=25)
     parser.add_argument("--t", type=int, default=1)
+    parser.add_argument("--db-path", type=Path)
     parser.add_argument("--case-ids", nargs="*")
     return parser.parse_args()
 
@@ -327,32 +386,48 @@ def main() -> int:
     )
     print(f"Aggregate CSV: {args.output}")
     print(f"Per-n CSV dir: {per_n_dir}")
+    db = None
+    if args.db_path is not None:
+        args.db_path.parent.mkdir(parents=True, exist_ok=True)
+        db = ResultDatabase(str(args.db_path))
+        print(f"Result DB: {args.db_path}")
     with CsvOutputs(args.output, per_n_dir) as outputs:
-        with ProcessPoolExecutor(max_workers=args.workers) as executor:
-            futures = {
-                executor.submit(run_case, case, args.time_limit, args.attempts, not args.no_verify): case
-                for case in cases
-            }
-            for index, future in enumerate(as_completed(futures), 1):
-                case = futures[future]
+        if args.workers == 1:
+            for index, case in enumerate(cases, 1):
                 try:
-                    row = future.result()
+                    row = run_case(case, args.time_limit, args.attempts, not args.no_verify)
                 except Exception as exc:
                     row = failed_row(case, str(exc))
-                outputs.write_row(row)
-                status = (
-                    "ok"
-                    if row["verified"] and not row["error"] and not row["verify_error"]
-                    else "check"
+                write_and_report_row(
+                    index=index,
+                    total=len(cases),
+                    row=row,
+                    outputs=outputs,
+                    db=db,
                 )
-                print(
-                    f"[{index}/{len(cases)}] {row['case_id']} {status}: "
-                    f"baseline={row['baseline_blocks']} actual={row['actual_blocks']} "
-                    f"error%={row['error_pct']} solve={row['solve_elapsed_sec']}s "
-                    f"verify={row['verify_elapsed_sec']}s total={row['elapsed_sec']}s"
-                )
+        else:
+            with ProcessPoolExecutor(max_workers=args.workers) as executor:
+                futures = {
+                    executor.submit(run_case, case, args.time_limit, args.attempts, not args.no_verify): case
+                    for case in cases
+                }
+                for index, future in enumerate(as_completed(futures), 1):
+                    case = futures[future]
+                    try:
+                        row = future.result()
+                    except Exception as exc:
+                        row = failed_row(case, str(exc))
+                    write_and_report_row(
+                        index=index,
+                        total=len(cases),
+                        row=row,
+                        outputs=outputs,
+                        db=db,
+                    )
     print(f"Saved validation CSV: {args.output}")
     print(f"Saved per-n CSV files: {per_n_dir}")
+    if args.db_path is not None:
+        print(f"Saved result DB: {args.db_path}")
     return 0
 
 
