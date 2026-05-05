@@ -30,10 +30,9 @@ def format_result_filename(
     run_number: int,
     num_groups: int,
 ) -> str:
-    prefix = f"{m}-{n}-{k}-{j}-{s}"
-    if int(t) > 1:
-        prefix = f"{prefix}-t{int(t)}"
-    return f"{prefix}-{run_number}-{num_groups}"
+    # Format: m-n-k-j-s-run-groups (at least t)
+    base = f"{m}-{n}-{k}-{j}-{s}-{run_number}-{num_groups}"
+    return f"{base} (at least {int(t)})"
 
 
 @dataclass(frozen=True)
