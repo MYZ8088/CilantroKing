@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Callable, Optional
 
+from app_core import format_result_filename, format_t_detail
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
@@ -326,7 +327,7 @@ class CleanModernApp:
         row2.pack(fill="x", pady=(0, 10))
         self._j = self._param_entry(row2, "Test Size (j)", "5", "Constraint: s≤j≤k", 0)
         self._s = self._param_entry(row2, "Threshold (s)", "5", "Range: 3-7", 1)
-        self._t = self._param_entry(row2, "T-Covering (t)", "1", "Range: 1-C(j,s)", 2)
+        self._t = self._param_entry(row2, "At least (t)", "1", "Range: 1-C(j,s) s-subsets", 2)
 
         # Third row
         row3 = tk.Frame(params_content, bg=self.colors['card_bg'])
@@ -849,6 +850,7 @@ class CleanModernApp:
             real_groups,
             self._current_result.elapsed,
             self._current_result.first_legal_elapsed,
+            t=p["t"],
         )
         self._file_lbl.set(f"Stored: {fn}")
         
@@ -873,17 +875,19 @@ class CleanModernApp:
         
         result = self._current_result
         p = self._params
-        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
+        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"], p["t"])
         current_run = run_count + 1
-        
+
         # Show detailed information WITHOUT verification status
-        t_info = f", t={p['t']}" if p.get('t', 1) > 1 else ""
         lines = [
             "═" * 70,
             "  DETAILED SOLUTION",
             "═" * 70,
             "",
-            f"  Parameters: m={p['m']}, n={p['n']}, k={p['k']}, j={p['j']}, s={p['s']}{t_info}",
+            (
+                f"  Parameters: m={p['m']}, n={p['n']}, k={p['k']}, "
+                f"j={p['j']}, s={p['s']}, {format_t_detail(p['t'])}"
+            ),
             f"  Run Number: {self._ordinal(current_run)}",
             f"  Groups Found: {result.num_groups}",
             f"  Time Elapsed: {result.elapsed:.2f}s",
@@ -946,7 +950,7 @@ class CleanModernApp:
         )
         
         # Get run number
-        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
+        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"], t)
         current_run = run_count + 1
         
         # Auto-refresh display with verification result
@@ -1025,7 +1029,16 @@ class CleanModernApp:
         self._result_text.insert("1.0", "\n".join(lines))
         
         # Update file label with verification status
-        filename = f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-{current_run}-{self._current_result.num_groups}"
+        filename = format_result_filename(
+            m=p["m"],
+            n=p["n"],
+            k=p["k"],
+            j=p["j"],
+            s=p["s"],
+            t=t,
+            run_number=current_run,
+            num_groups=self._current_result.num_groups,
+        )
         status = "Verified" if is_verified else "Failed"
         self._file_lbl.set(f"{status} {filename}")
 
@@ -1206,7 +1219,7 @@ class CleanModernApp:
 
         # Get run number
         p = self._params
-        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"])
+        run_count = self._get_run_count(p["m"], p["n"], p["k"], p["j"], p["s"], p["t"])
         current_run = run_count + 1
 
         self._render_result_summary(result, current_run)
@@ -1232,6 +1245,7 @@ class CleanModernApp:
             "  Summary:",
             "  " + "-" * 66,
             f"    Groups Found      : {result.num_groups}",
+            f"    Cover Count       : {format_t_detail(p['t'])}",
             f"    Time Elapsed      : {result.elapsed:.2f}s",
             f"    First Legal       : {first_legal}",
             f"    Run Number        : {self._ordinal(current_run)}",
@@ -1251,9 +1265,15 @@ class CleanModernApp:
         self._result_text.delete("1.0", "end")
         self._result_text.insert("1.0", "\n".join(lines))
 
-        filename = (
-            f"{p['m']}-{p['n']}-{p['k']}-{p['j']}-{p['s']}-"
-            f"{current_run}-{result.num_groups}"
+        filename = format_result_filename(
+            m=p["m"],
+            n=p["n"],
+            k=p["k"],
+            j=p["j"],
+            s=p["s"],
+            t=p["t"],
+            run_number=current_run,
+            num_groups=result.num_groups,
         )
         self._file_lbl.set(f"Result: {filename}")
 
@@ -1282,13 +1302,10 @@ class CleanModernApp:
             suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
         return f"{n}{suffix}"
 
-    def _get_run_count(self, m: int, n: int, k: int, j: int, s: int) -> int:
+    def _get_run_count(self, m: int, n: int, k: int, j: int, s: int, t: int = 1) -> int:
         """Get the number of previous runs with the same parameters."""
         try:
-            all_results = self.db.list_all()
-            count = sum(1 for r in all_results 
-                       if r.m == m and r.n == n and r.k == k and r.j == j and r.s == s)
-            return count
+            return self.db.count_by_params(m, n, k, j, s, t)
         except Exception:
             return 0
 
@@ -1483,6 +1500,7 @@ class CleanModernApp:
             f"    • Group Size (k): {r.k}",
             f"    • Test Size (j): {r.j}",
             f"    • Threshold (s): {r.s}",
+            f"    • Cover Count (t): {format_t_detail(r.t)}",
             "",
             "  Selected Samples:",
             f"    {r.samples}",

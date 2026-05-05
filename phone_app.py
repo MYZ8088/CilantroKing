@@ -13,6 +13,7 @@ from typing import Any
 
 from app_core import (
     SolveRequest,
+    format_t_detail,
     select_samples_for_request,
     serialize_solver_result,
     validate_solve_payload,
@@ -142,7 +143,7 @@ class PhoneSamplesApp:
             ("k", self.k_var, "4 <= k <= 7"),
             ("j", self.j_var, "s <= j <= k"),
             ("s", self.s_var, "3 <= s <= 7"),
-            ("at least", self.t_var, "s samples"),
+            ("at least (t)", self.t_var, "s-subsets"),
             ("time", self.timeout_var, "seconds"),
         ]
         for index, (label, var, hint) in enumerate(fields):
@@ -588,6 +589,7 @@ class PhoneSamplesApp:
             request.group_size,
             request.test_size,
             request.threshold,
+            request.cover_count,
         ) + 1
         self.current_payload = serialize_solver_result(
             request=request,
@@ -614,10 +616,18 @@ class PhoneSamplesApp:
         self.cancel_button.config(state="disabled")
 
     def _render_payload(self, payload: dict[str, Any]) -> None:
+        params = payload["params"]
         self.filename_label.config(text=str(payload["filename"]))
         self.result_box.delete(0, tk.END)
         self.result_box.insert(tk.END, f"{payload['num_groups']} groups found")
         self.result_box.insert(tk.END, f"Verified: {'yes' if payload['verified'] else 'pending'}")
+        self.result_box.insert(
+            tk.END,
+            (
+                f"Params: m={params['m']}, n={params['n']}, k={params['k']}, "
+                f"j={params['j']}, s={params['s']}, {format_t_detail(params['t'])}"
+            ),
+        )
         self.result_box.insert(tk.END, "")
         for index, group in enumerate(payload["groups"], 1):
             self.result_box.insert(tk.END, f"{index:03d}: {', '.join(map(str, group))}")
@@ -673,6 +683,7 @@ class PhoneSamplesApp:
             payload["groups"],
             float(payload["elapsed_sec"]),
             payload["first_legal_elapsed_sec"],
+            t=request.cover_count,
         )
         self.current_payload = {**payload, "filename": stored_filename, "stored_filename": stored_filename}
         self.filename_label.config(text=stored_filename)
@@ -728,7 +739,13 @@ class PhoneSamplesApp:
         self.db_detail_box.delete(0, tk.END)
         self.db_detail_box.insert(tk.END, saved.filename)
         self.db_detail_box.insert(tk.END, f"Created: {saved.created_at}")
-        self.db_detail_box.insert(tk.END, f"m={saved.m}, n={saved.n}, k={saved.k}, j={saved.j}, s={saved.s}")
+        self.db_detail_box.insert(
+            tk.END,
+            (
+                f"m={saved.m}, n={saved.n}, k={saved.k}, j={saved.j}, "
+                f"s={saved.s}, {format_t_detail(saved.t)}"
+            ),
+        )
         self.db_detail_box.insert(tk.END, f"Samples: {', '.join(map(str, saved.samples))}")
         self.db_detail_box.insert(tk.END, "")
         for index, group in enumerate(saved.groups, 1):

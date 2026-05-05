@@ -12,6 +12,30 @@ from typing import Any, Mapping
 DEFAULT_TIMEOUT_SEC = 120
 
 
+def format_t_detail(t: int) -> str:
+    t_value = int(t)
+    if t_value > 1:
+        return f"t={t_value} (at least {t_value})"
+    return f"t={t_value}"
+
+
+def format_result_filename(
+    *,
+    m: int,
+    n: int,
+    k: int,
+    j: int,
+    s: int,
+    t: int,
+    run_number: int,
+    num_groups: int,
+) -> str:
+    prefix = f"{m}-{n}-{k}-{j}-{s}"
+    if int(t) > 1:
+        prefix = f"{prefix}-t{int(t)}"
+    return f"{prefix}-{run_number}-{num_groups}"
+
+
 @dataclass(frozen=True)
 class SolveRequest:
     population_size: int
@@ -154,9 +178,15 @@ def serialize_solver_result(
     index_groups = _solver_index_groups(solver_result)
     real_groups = groups_for_samples(index_groups, request.selected_samples)
     num_groups = int(getattr(solver_result, "num_groups", len(real_groups)))
-    filename = (
-        f"{request.population_size}-{request.sample_size}-{request.group_size}-"
-        f"{request.test_size}-{request.threshold}-{run_number}-{num_groups}"
+    filename = format_result_filename(
+        m=request.population_size,
+        n=request.sample_size,
+        k=request.group_size,
+        j=request.test_size,
+        s=request.threshold,
+        t=request.cover_count,
+        run_number=run_number,
+        num_groups=num_groups,
     )
     first_legal_elapsed = getattr(solver_result, "first_legal_elapsed", None)
     return {
