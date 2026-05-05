@@ -1396,6 +1396,20 @@ def _run_jk_large_delta_dense(solver: "CoveringDesignSolver", sol: list[int], sp
     first_before = len(best)
     best = _n17_jk_orbit_refine(solver, best, label=spec.bucket)
     orbit_first_gain = first_before - len(best)
+    # 参考 set-cover 局部搜索中的大邻域/交换思想：
+    # 对 j=k,s=k-1 且解较大的情形，优先做“脆弱目标驱动”的候选池重构。
+    if (
+        spec.k >= 6
+        and spec.s == (spec.k - 1)
+        and len(best) >= 40
+    ):
+        best = _n17_jk_fragile_pool_refine(
+            solver,
+            best,
+            label=spec.bucket,
+            max_pool=6200 if spec.k >= 7 else 5400,
+        )
+        orbit_first_gain = first_before - len(best)
     if orbit_first_gain <= 0:
         best = _n17_neighborhood_cp_sat_refine(
             solver,
@@ -1460,6 +1474,20 @@ def _run_jk_large_delta_dense(solver: "CoveringDesignSolver", sol: list[int], sp
             break
         if orbit_round >= 2:
             break
+    remaining_tail = solver._time_remaining_sec()
+    if (
+        remaining_tail is not None
+        and remaining_tail >= 6.5
+        and spec.k >= 6
+        and spec.s == (spec.k - 1)
+        and len(best) >= 40
+    ):
+        best = _n17_jk_fragile_pool_refine(
+            solver,
+            best,
+            label=spec.bucket,
+            max_pool=5600 if spec.k >= 7 else 5000,
+        )
     remaining_tail = solver._time_remaining_sec()
     if remaining_tail is not None and remaining_tail >= 8.0 and len(best) >= 120:
         best = _n17_neighborhood_cp_sat_refine(
@@ -1589,6 +1617,68 @@ def _run_containment_fast_bad_dense(
             total_budget_cap=4.5,
             seed_list=(1, 17),
             label=spec.bucket,
+        )
+    return best
+
+
+def _run_containment_tail(
+    solver: "CoveringDesignSolver",
+    sol: list[int],
+    spec: N17CaseSpec,
+) -> list[int]:
+    solver._report(
+        "optimize",
+        (
+            "Phase-N17 bucket dispatch: "
+            f"{spec.case_id} -> {spec.bucket} ({spec.priority})"
+        ),
+    )
+    best = list(sol)
+    remaining = solver._time_remaining_sec()
+    if remaining is None or remaining < 4.0:
+        return best
+
+    # 借鉴覆盖设计 hill-climbing 的“替换弱块”思路：
+    # 先跑一轮 containment 轨道压缩，再进行多档 drop/repair。
+    best = _n17_containment_orbit_refine(solver, best, label=spec.bucket)
+    best = _n17_try_target_len_window(
+        solver,
+        best,
+        drops=(3, 2, 1, 1),
+        round_budget_cap=10.0,
+        budget_ratio=0.12,
+        label=spec.bucket,
+    )
+
+    remaining = solver._time_remaining_sec()
+    if remaining is not None and remaining >= 5.0:
+        best = _n17_containment_fragile_rebuild(
+            solver,
+            best,
+            label=spec.bucket,
+            drop_plan=(3, 4, 5),
+            max_rounds=2,
+        )
+
+    remaining = solver._time_remaining_sec()
+    if remaining is not None and remaining >= 4.5:
+        best = _n17_containment_swap_neighborhood_refine(
+            solver,
+            best,
+            label=spec.bucket,
+            extra_cap=2200 if spec.k >= 7 else 1800,
+        )
+
+    remaining = solver._time_remaining_sec()
+    if remaining is not None and remaining >= 4.2:
+        best = _n17_neighborhood_cp_sat_refine(
+            solver,
+            best,
+            extras_cap=1000,
+            total_budget_cap=4.5,
+            seed_list=(1, 17),
+            label=spec.bucket,
+            use_fragile_priority=True,
         )
     return best
 
@@ -1792,7 +1882,39 @@ def _run_general_mid_core(solver: "CoveringDesignSolver", sol: list[int], spec: 
             f"{spec.case_id} -> {spec.bucket} ({spec.priority})"
         ),
     )
-    return sol
+    best = list(sol)
+    remaining = solver._time_remaining_sec()
+    if remaining is None or remaining < 4.0:
+        return best
+
+    # 参考局部交换(k,p-exchange)思路：先尝试更激进的目标组数窗口，再做邻域精修。
+    best = _n17_try_target_len_window(
+        solver,
+        best,
+        drops=(2, 1, 1),
+        round_budget_cap=9.0,
+        budget_ratio=0.12,
+        label=spec.bucket,
+    )
+    remaining = solver._time_remaining_sec()
+    if remaining is not None and remaining >= 4.5:
+        best = _n17_neighborhood_cp_sat_refine(
+            solver,
+            best,
+            extras_cap=1600,
+            total_budget_cap=6.0,
+            seed_list=(1, 17, 29),
+            label=spec.bucket,
+        )
+    remaining = solver._time_remaining_sec()
+    if remaining is not None and remaining >= 4.0:
+        best = _n17_jk_swap_neighborhood_refine(
+            solver,
+            best,
+            label=spec.bucket,
+            extra_cap=2000 if spec.k >= 7 else 1500,
+        )
+    return best
 
 
 def _run_fallback_bucket(solver: "CoveringDesignSolver", sol: list[int], spec: N17CaseSpec) -> list[int]:
@@ -1826,6 +1948,12 @@ def run_n17_specialized_module(solver, sol: list[int]) -> list[int]:
         return _run_general_k7_j6_hard(solver, sol, spec)
     if spec.bucket == "tiny_baseline_exactish":
         return _run_tiny_baseline_exactish(solver, sol, spec)
+    if spec.bucket == "containment_tail":
+        return _run_containment_tail(solver, sol, spec)
+    if spec.bucket == "jk_tail":
+        return _run_jk_large_delta_dense(solver, sol, spec)
+    if spec.bucket == "general_tail":
+        return _run_general_mid_core(solver, sol, spec)
     if spec.bucket == "general_mid_core":
         return _run_general_mid_core(solver, sol, spec)
     return _run_fallback_bucket(solver, sol, spec)
