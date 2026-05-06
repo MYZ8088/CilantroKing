@@ -3,21 +3,35 @@
 from __future__ import annotations
 
 import math
+import json
+import os
+import platform
 import queue
 import random
+import shutil
+import subprocess
 import threading
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Callable, Optional
 
-from app_core import format_result_filename, format_t_detail
+from app_core import (
+    format_result_filename,
+    format_saved_result_print_rtf,
+    format_saved_result_print_text,
+    format_t_detail,
+    safe_export_stem,
+    saved_result_to_print_payload,
+)
 from database import ResultDatabase, SavedResult
 from solver import CoveringDesignSolver, SolverProgress, SolverResult, elements_to_mask
 
 DEFAULT_TIME_BUDGET_SEC = 120.0
 UI_FONT = "Helvetica"
 MONO_FONT = "Menlo"
+PRINT_EXPORT_DIR = Path("print_exports")
 
 class CleanModernApp:
     """Modern application using pure tkinter with clean design."""
@@ -1370,11 +1384,12 @@ class CleanModernApp:
         # Action Buttons
         btn_frame = tk.Frame(scroll_frame, bg=self.colors['bg'])
         btn_frame.pack(fill="x", pady=(0, 14))
-        for col in range(3):
+        for col in range(4):
             btn_frame.grid_columnconfigure(col, weight=1, uniform="db-actions")
 
         db_buttons = [
             self._create_button(btn_frame, "Display", self._db_display, variant="primary"),
+            self._create_button(btn_frame, "Print", self._db_print, variant="secondary"),
             self._create_button(btn_frame, "Delete", self._db_delete, variant="danger"),
             self._create_button(btn_frame, "Back", self._show_main, variant="neutral"),
         ]
@@ -1470,11 +1485,23 @@ class CleanModernApp:
             return None
         return self._db_ids[sel[0]]
 
-    def _db_display(self) -> None:
+    def _load_selected_saved_result(self) -> SavedResult | None:
         rid = self._selected_db_id()
         if rid is None:
-            return
-        r = self.db.load(rid)
+            return None
+        result = self.db.load(rid)
+        if result is None:
+            self._show_custom_dialog(
+                "Missing Result",
+                "The selected result could not be found.\n\nThe database list will be refreshed.",
+                "error"
+            )
+            self._refresh_db_list()
+            return None
+        return result
+
+    def _db_display(self) -> None:
+        r = self._load_selected_saved_result()
         if r is None:
             return
 
@@ -1521,6 +1548,147 @@ class CleanModernApp:
         self._db_text.delete("1.0", "end")
         self._db_text.insert("1.0", "\n".join(lines))
         self._db_text.config(state="disabled")
+
+    def _db_print(self) -> None:
+        result = self._load_selected_saved_result()
+        if result is None:
+            return
+
+        try:
+            export_paths = self._write_print_files(result)
+        except OSError as exc:
+            self._show_custom_dialog(
+                "Print Failed",
+                f"Could not create print files.\n\n{exc}",
+                "error"
+            )
+            return
+
+        print_text = format_saved_result_print_text(result)
+        self._db_text.config(state="normal")
+        self._db_text.delete("1.0", "end")
+        self._db_text.insert("1.0", print_text)
+        self._db_text.config(state="disabled")
+
+        printed, print_message = self._submit_print_job(export_paths["text"])
+        if printed:
+            self._show_custom_dialog(
+                "Print Submitted",
+                "Result data was sent to the system printer.\n\n"
+                f"Word-compatible file: {export_paths['rtf']}\n"
+                f"JSON data file: {export_paths['json']}\n\n"
+                f"Printer response: {print_message}",
+                "success"
+            )
+            return
+
+        opened, open_message = self._open_print_document(export_paths["rtf"])
+        if opened:
+            self._show_custom_dialog(
+                "Print Document Opened",
+                "Direct printer submission was not available, so the Word-compatible document was opened.\n\n"
+                f"Print from the opened document.\n\n"
+                f"Word-compatible file: {export_paths['rtf']}\n"
+                f"JSON data file: {export_paths['json']}\n\n"
+                f"Printer response: {print_message}",
+                "success"
+            )
+            return
+
+        self._show_custom_dialog(
+            "Print Files Created",
+            "Could not submit the print job automatically, but the print files were created.\n\n"
+            f"Word-compatible file: {export_paths['rtf']}\n"
+            f"JSON data file: {export_paths['json']}\n\n"
+            f"Printer response: {print_message}\n"
+            f"Open response: {open_message}",
+            "error"
+        )
+
+    def _write_print_files(self, result: SavedResult) -> dict[str, Path]:
+        PRINT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        stem = safe_export_stem(result.filename)
+        export_paths = {
+            "text": PRINT_EXPORT_DIR / f"{stem}.txt",
+            "rtf": PRINT_EXPORT_DIR / f"{stem}.rtf",
+            "json": PRINT_EXPORT_DIR / f"{stem}.json",
+        }
+
+        export_paths["text"].write_text(
+            format_saved_result_print_text(result),
+            encoding="utf-8",
+        )
+        export_paths["rtf"].write_text(
+            format_saved_result_print_rtf(result),
+            encoding="utf-8",
+        )
+        export_paths["json"].write_text(
+            json.dumps(
+                saved_result_to_print_payload(result),
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return export_paths
+
+    def _submit_print_job(self, text_path: Path) -> tuple[bool, str]:
+        system_name = platform.system()
+        if system_name in {"Darwin", "Linux"}:
+            printer_command = shutil.which("lp") or shutil.which("lpr")
+            if printer_command is None:
+                return False, "No lp/lpr printer command was found."
+            try:
+                completed = subprocess.run(
+                    [printer_command, str(text_path)],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=30,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                return False, str(exc)
+            output = (completed.stdout or completed.stderr).strip()
+            if completed.returncode == 0:
+                return True, output or "Print job submitted."
+            return False, output or f"Printer command exited with code {completed.returncode}."
+
+        if system_name == "Windows":
+            try:
+                os.startfile(str(text_path), "print")  # type: ignore[attr-defined]
+            except OSError as exc:
+                return False, str(exc)
+            return True, "Print job submitted through the Windows shell."
+
+        return False, f"Unsupported print platform: {system_name}."
+
+    def _open_print_document(self, document_path: Path) -> tuple[bool, str]:
+        system_name = platform.system()
+        if system_name == "Windows":
+            try:
+                os.startfile(str(document_path))  # type: ignore[attr-defined]
+            except OSError as exc:
+                return False, str(exc)
+            return True, "Document opened through the Windows shell."
+
+        opener = "open" if system_name == "Darwin" else "xdg-open"
+        opener_command = shutil.which(opener)
+        if opener_command is None:
+            return False, f"No {opener} command was found."
+        try:
+            completed = subprocess.run(
+                [opener_command, str(document_path)],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, str(exc)
+        output = (completed.stdout or completed.stderr).strip()
+        if completed.returncode == 0:
+            return True, output or "Document opened."
+        return False, output or f"Open command exited with code {completed.returncode}."
 
     def _db_delete(self) -> None:
         rid = self._selected_db_id()

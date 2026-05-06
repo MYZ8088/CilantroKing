@@ -30,10 +30,9 @@ def format_result_filename(
     run_number: int,
     num_groups: int,
 ) -> str:
-    prefix = f"{m}-{n}-{k}-{j}-{s}"
-    if int(t) > 1:
-        prefix = f"{prefix}-t{int(t)}"
-    return f"{prefix}-{run_number}-{num_groups}"
+    # Format: m-n-k-j-s-run-groups (at least t)
+    base = f"{m}-{n}-{k}-{j}-{s}-{run_number}-{num_groups}"
+    return f"{base} (at least {int(t)})"
 
 
 @dataclass(frozen=True)
@@ -210,6 +209,98 @@ def serialize_solver_result(
     }
 
 
+def saved_result_to_print_payload(result: Any) -> dict[str, Any]:
+    solution_found_time = getattr(result, "solution_found_time", None)
+    return {
+        "id": int(getattr(result, "id")),
+        "filename": str(getattr(result, "filename")),
+        "created_at": str(getattr(result, "created_at")),
+        "parameters": {
+            "m": int(getattr(result, "m")),
+            "n": int(getattr(result, "n")),
+            "k": int(getattr(result, "k")),
+            "j": int(getattr(result, "j")),
+            "s": int(getattr(result, "s")),
+            "t": int(getattr(result, "t")),
+        },
+        "run_number": int(getattr(result, "run_number")),
+        "num_groups": int(getattr(result, "num_groups")),
+        "samples": [int(sample) for sample in getattr(result, "samples")],
+        "groups": [
+            [int(value) for value in group]
+            for group in getattr(result, "groups")
+        ],
+        "elapsed_time_sec": round(float(getattr(result, "elapsed_time")), 6),
+        "solution_found_time_sec": (
+            round(float(solution_found_time), 6)
+            if solution_found_time is not None
+            else None
+        ),
+    }
+
+
+def format_saved_result_print_text(result: Any) -> str:
+    payload = saved_result_to_print_payload(result)
+    parameters = payload["parameters"]
+    solution_found_time = payload["solution_found_time_sec"]
+    solution_found_text = (
+        f"{solution_found_time:.2f}s"
+        if solution_found_time is not None
+        else "---"
+    )
+
+    lines = [
+        "=" * 72,
+        "OPTIMAL SAMPLES SELECTION - PRINT REPORT",
+        "=" * 72,
+        "",
+        f"File                 : {payload['filename']}",
+        f"Created              : {payload['created_at']}",
+        f"Run Number           : {payload['run_number']}",
+        f"Groups Found         : {payload['num_groups']}",
+        f"Total Algorithm Time : {payload['elapsed_time_sec']:.2f}s",
+        f"Solution Found Time  : {solution_found_text}",
+        "",
+        "Parameters",
+        "-" * 72,
+        f"Population (m)       : {parameters['m']}",
+        f"Sample Size (n)      : {parameters['n']}",
+        f"Group Size (k)       : {parameters['k']}",
+        f"Test Size (j)        : {parameters['j']}",
+        f"Threshold (s)        : {parameters['s']}",
+        f"Cover Count (t)      : {format_t_detail(parameters['t'])}",
+        "",
+        "Selected Samples",
+        "-" * 72,
+        ", ".join(str(sample) for sample in payload["samples"]),
+        "",
+        f"Groups ({payload['num_groups']} total)",
+        "-" * 72,
+    ]
+
+    for index, group in enumerate(payload["groups"], 1):
+        group_text = ", ".join(str(value) for value in group)
+        lines.append(f"Group {index:3d}: {group_text}")
+
+    lines.extend(["", "=" * 72])
+    return "\n".join(lines)
+
+
+def format_saved_result_print_rtf(result: Any) -> str:
+    text = format_saved_result_print_text(result)
+    return (
+        r"{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}"
+        r"\fs20 "
+        f"{_rtf_escape(text)}"
+        "}"
+    )
+
+
+def safe_export_stem(name: str, fallback: str = "print_result") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(name)).strip(" ._")
+    return (cleaned[:120] or fallback)
+
+
 def _payload_int(payload: Mapping[str, Any], key: str, default: int | None = None) -> int:
     raw_value = payload.get(key, default)
     if raw_value is None:
@@ -228,3 +319,19 @@ def _solver_index_groups(solver_result: Any) -> list[list[int]]:
     else:
         groups = getattr(solver_result, "groups", [])
     return [[int(value) for value in group] for group in groups]
+
+
+def _rtf_escape(text: str) -> str:
+    escaped: list[str] = []
+    for char in text:
+        if char == "\n":
+            escaped.append(r"\line ")
+        elif char in {"\\", "{", "}"}:
+            escaped.append(f"\\{char}")
+        elif ord(char) > 127:
+            codepoint = ord(char)
+            signed_codepoint = codepoint if codepoint <= 32767 else codepoint - 65536
+            escaped.append(f"\\u{signed_codepoint}?")
+        else:
+            escaped.append(char)
+    return "".join(escaped)
