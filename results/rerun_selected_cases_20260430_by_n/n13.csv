@@ -1,0 +1,2 @@
+case_order,case_id,n,k,j,s,t,baseline_blocks,actual_blocks,ratio_to_baseline,error_pct,solve_elapsed_sec,verify_elapsed_sec,elapsed_sec,verified,verify_method,route_module,solution_source,error,verify_error
+233,L_13_7_5_5,13,7,5,5,1,78,78,1.0,0.0,115.603479,0.016988,115.6208,True,CoveringDesignSolver._verify,n_algorithms.n13.solver,search,,
